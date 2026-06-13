@@ -1,0 +1,1491 @@
+
+<h2 class="sr-only">Restaurant POS v2 — XP-80 ESC/POS real printing and persistent data storage across sessions</h2>
+<style>
+:root{
+  --color-background-primary:#1C1C1E;
+  --color-background-secondary:#2C2C2E;
+  --color-background-tertiary:#3A3A3C;
+  --color-text-primary:#F2F2F7;
+  --color-text-secondary:#AEAEB2;
+  --color-text-tertiary:#636366;
+  --color-border-primary:#48484A;
+  --color-border-secondary:#3A3A3C;
+  --color-border-tertiary:#2C2C2E;
+  --font-sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --font-mono:'SF Mono','Fira Code',monospace;
+  --border-radius-md:8px;
+  --border-radius-lg:12px;
+  --color-background-success:#1A3A1A;
+  --color-text-success:#30D158;
+  --color-background-danger:#3A1A1A;
+  --color-text-danger:#FF453A;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans);font-size:14px;color:var(--color-text-primary);background:var(--color-background-primary)}
+.pos-wrap{display:flex;flex-direction:column;gap:0;min-height:600px}
+.top-bar{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--color-background-primary);border-bottom:0.5px solid var(--color-border-tertiary)}
+.top-bar .brand{font-size:16px;font-weight:500}
+.nav{display:flex;gap:4px}
+.nav-btn{padding:6px 14px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-tertiary);background:transparent;cursor:pointer;font-size:13px;color:var(--color-text-secondary);transition:all 0.15s}
+.nav-btn.active{background:var(--color-background-secondary);color:var(--color-text-primary);border-color:var(--color-border-secondary);font-weight:500}
+.nav-btn:hover:not(.active){background:var(--color-background-secondary)}
+.printer-status{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--color-text-secondary)}
+.status-dot{width:8px;height:8px;border-radius:50%;background:#E24B4A}
+.status-dot.connected{background:#639922}
+.screen{display:none}
+.screen.active{display:flex;flex-direction:column}
+.order-layout{display:grid;grid-template-columns:190px 1fr 280px;gap:0;min-height:560px}
+.section-panel{border-right:0.5px solid var(--color-border-tertiary);display:flex;flex-direction:column}
+.panel-head{padding:10px 14px;font-size:13px;font-weight:500;border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary);display:flex;align-items:center;justify-content:space-between}
+.order-type-row{display:flex;gap:6px;padding:10px 14px;border-bottom:0.5px solid var(--color-border-tertiary)}
+.ot-btn{flex:1;padding:6px 4px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-tertiary);background:transparent;cursor:pointer;font-size:12px;color:var(--color-text-secondary);text-align:center}
+.ot-btn.active{background:#0D2E4A;color:#5AC8FA;border-color:#0A84FF;font-weight:500}
+.table-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;padding:8px}
+.tbl{border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-tertiary);padding:7px 4px;text-align:center;cursor:pointer;background:var(--color-background-primary);transition:all 0.15s}
+.tbl:hover{border-color:var(--color-border-secondary);background:var(--color-background-secondary)}
+.tbl.occupied{background:#2E1E00;border:1.5px solid #FF9500}
+.tbl.occupied .tnum{color:#FF9500;font-weight:700}
+.tbl.selected{background:#0D2E4A;border-color:#0A84FF}
+.tbl .tnum{font-size:13px;font-weight:500}
+.tbl .tstat{font-size:10px;color:var(--color-text-secondary);margin-top:1px}
+.tbl.occupied .tstat{color:#FFB340;font-weight:600}
+.tbl.selected .tstat{color:#5AC8FA}
+.cat-row{display:flex;gap:6px;padding:10px 14px;border-bottom:0.5px solid var(--color-border-tertiary);overflow-x:auto}
+.cat-btn{white-space:nowrap;padding:5px 12px;border-radius:20px;border:0.5px solid var(--color-border-tertiary);background:transparent;cursor:pointer;font-size:12px;color:var(--color-text-secondary)}
+.cat-btn.active{background:#1A3A1A;color:#30D158;border-color:#30D158;font-weight:500}
+.menu-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;padding:8px;overflow-y:auto;max-height:calc(100vh - 160px)}
+.menu-item{border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-tertiary);padding:7px 8px;cursor:pointer;background:var(--color-background-primary);transition:all 0.15s}
+.menu-item:hover{border-color:var(--color-border-secondary);background:var(--color-background-secondary)}
+.menu-item .mname{font-size:12px;font-weight:500;line-height:1.3}
+.menu-item .mprice{font-size:12px;color:#30D158;margin-top:3px}
+.menu-item .mbadge{display:inline-block;font-size:9px;padding:1px 5px;border-radius:4px;margin-top:3px}
+.veg{background:#1A3A1A;color:#30D158}
+.nonveg{background:#3A1A1A;color:#FF6B6B}
+.cart-panel{display:flex;flex-direction:column;background:var(--color-background-primary)}
+.cart-items{flex:1;overflow-y:auto;max-height:320px;padding:8px}
+.cart-row{display:flex;align-items:center;gap:8px;padding:8px;border-bottom:0.5px solid var(--color-border-tertiary)}
+.cart-row:last-child{border-bottom:none}
+.cart-name{flex:1;font-size:13px}
+.cart-qty{display:flex;align-items:center;gap:6px}
+.qty-btn{width:22px;height:22px;border-radius:50%;border:0.5px solid var(--color-border-secondary);background:transparent;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;color:var(--color-text-primary);line-height:1}
+.cart-price{font-size:13px;font-weight:500;min-width:54px;text-align:right}
+.cart-empty{text-align:center;padding:40px 16px;color:var(--color-text-secondary);font-size:13px}
+.cart-footer{padding:12px;border-top:0.5px solid var(--color-border-tertiary)}
+.sum-row{display:flex;justify-content:space-between;padding:3px 0;font-size:13px}
+.sum-row.total{font-weight:500;font-size:15px;border-top:0.5px solid var(--color-border-tertiary);margin-top:6px;padding-top:6px}
+.pay-row{display:flex;gap:6px;margin-top:10px}
+.pay-btn{flex:1;padding:7px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:transparent;cursor:pointer;font-size:12px;color:var(--color-text-secondary)}
+.pay-btn.active{background:#0D2E4A;color:#5AC8FA;border-color:#0A84FF;font-weight:500}
+.print-btn{width:100%;padding:10px;border-radius:var(--border-radius-md);background:#0A84FF;color:#F2F2F7;border:none;cursor:pointer;font-size:14px;font-weight:500;margin-top:10px}
+.print-btn:hover{background:#0066CC}
+.print-btn:disabled{background:var(--color-background-secondary);color:var(--color-text-secondary);cursor:not-allowed}
+.clear-btn{width:100%;padding:8px;border-radius:var(--border-radius-md);background:transparent;color:var(--color-text-secondary);border:0.5px solid var(--color-border-tertiary);cursor:pointer;font-size:13px;margin-top:6px}
+.mgmt-layout{padding:16px;display:flex;flex-direction:column;gap:14px}
+.mgmt-toolbar{display:flex;gap:8px;align-items:center}
+.mgmt-toolbar input{flex:1;padding:7px 12px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);font-size:13px;color:var(--color-text-primary)}
+.mgmt-toolbar select{padding:7px 12px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);font-size:13px;color:var(--color-text-primary)}
+.add-item-btn{padding:7px 14px;border-radius:var(--border-radius-md);background:#0A84FF;color:#F2F2F7;border:none;cursor:pointer;font-size:13px;font-weight:500;white-space:nowrap}
+.menu-table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+.menu-table th{text-align:left;padding:8px 10px;font-weight:500;font-size:12px;color:var(--color-text-secondary);border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary)}
+.menu-table td{padding:9px 10px;border-bottom:0.5px solid var(--color-border-tertiary);vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.menu-table tr:last-child td{border-bottom:none}
+.edit-btn{padding:4px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:transparent;cursor:pointer;font-size:12px;color:var(--color-text-secondary);margin-right:4px}
+.del-btn{padding:4px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:transparent;cursor:pointer;font-size:12px;color:#993C1D}
+.stock-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px}
+.in-stock{background:#1A3A1A;color:#30D158}
+.low-stock{background:#3A2A0A;color:#FFD60A}
+.out-stock{background:#3A1A1A;color:#FF453A}
+.inv-layout{padding:16px;display:flex;flex-direction:column;gap:14px}
+.inv-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.inv-card{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:12px}
+.inv-card .ic-label{font-size:12px;color:var(--color-text-secondary);margin-bottom:4px}
+.inv-card .ic-val{font-size:20px;font-weight:500}
+.inv-card .ic-sub{font-size:11px;color:var(--color-text-secondary);margin-top:2px}
+.inv-table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+.inv-table th{text-align:left;padding:8px 10px;font-weight:500;font-size:12px;color:var(--color-text-secondary);border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary)}
+.inv-table td{padding:9px 10px;border-bottom:0.5px solid var(--color-border-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.inv-table tr:last-child td{border-bottom:none}
+.prog-bar{height:6px;border-radius:3px;background:var(--color-border-tertiary);overflow:hidden;margin-top:4px}
+.prog-fill{height:100%;border-radius:3px}
+.report-layout{padding:16px;display:flex;flex-direction:column;gap:14px}
+.report-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.rep-card{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:12px}
+.rep-card .rc-label{font-size:12px;color:var(--color-text-secondary);margin-bottom:4px}
+.rep-card .rc-val{font-size:20px;font-weight:500}
+.rep-card .rc-delta{font-size:11px;margin-top:2px}
+.up{color:#3B6D11}
+.down{color:#993C1D}
+.report-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.rep-box{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:14px}
+.rep-box-title{font-size:13px;font-weight:500;margin-bottom:12px}
+.bar-chart{display:flex;align-items:flex-end;gap:6px;height:100px}
+.bar-wrap{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px}
+.bar{width:100%;border-radius:4px 4px 0 0;background:#0A84FF}
+.bar-label{font-size:10px;color:var(--color-text-secondary)}
+.bar-val{font-size:10px;font-weight:500;color:#5AC8FA}
+.top-items{display:flex;flex-direction:column;gap:8px}
+.top-item-row{display:flex;align-items:center;gap:8px}
+.top-item-name{flex:1;font-size:13px}
+.top-item-bar{height:6px;border-radius:3px;background:#30D158}
+.top-item-qty{font-size:12px;color:var(--color-text-secondary);min-width:50px;text-align:right}
+.channel-list{display:flex;flex-direction:column;gap:10px}
+.channel-row{display:flex;align-items:center;gap:10px}
+.ch-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.ch-name{flex:1;font-size:13px}
+.ch-val{font-size:13px;font-weight:500}
+.ch-pct{font-size:12px;color:var(--color-text-secondary);min-width:36px;text-align:right}
+.modal-overlay{display:none;min-height:500px;background:rgba(0,0,0,0.4);align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal{background:var(--color-background-primary);border-radius:var(--border-radius-lg);border:0.5px solid var(--color-border-secondary);padding:20px;width:340px}
+.modal h3{font-size:15px;font-weight:500;margin-bottom:14px}
+.modal label{font-size:12px;color:var(--color-text-secondary);display:block;margin-bottom:4px;margin-top:10px}
+.modal input,.modal select{width:100%;padding:7px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);font-size:13px;color:var(--color-text-primary)}
+.modal-btns{display:flex;gap:8px;margin-top:16px}
+.modal-btns button{flex:1;padding:9px;border-radius:var(--border-radius-md);cursor:pointer;font-size:13px;font-weight:500}
+.modal-cancel{background:transparent;border:0.5px solid var(--color-border-secondary);color:var(--color-text-secondary)}
+.modal-save{background:#0A84FF;color:#F2F2F7;border:none}
+.receipt-modal{background:var(--color-background-primary);border-radius:var(--border-radius-lg);border:0.5px solid var(--color-border-secondary);padding:20px;width:300px;max-height:80vh;overflow-y:auto}
+.r-title{text-align:center;font-size:16px;font-weight:500}
+.r-sub{text-align:center;font-size:12px;color:var(--color-text-secondary);margin-bottom:10px}
+.r-divider{border:none;border-top:1px dashed var(--color-border-secondary);margin:8px 0}
+.r-row{display:flex;justify-content:space-between;font-size:13px;padding:3px 0}
+.r-footer{text-align:center;font-size:11px;color:var(--color-text-secondary);margin-top:10px}
+.receipt-btns{display:flex;flex-direction:column;gap:6px;margin-top:12px}
+.receipt-btns button{width:100%;padding:9px;border-radius:var(--border-radius-md);cursor:pointer;font-size:13px;font-weight:500}
+.btn-print-xp80{background:#0A84FF;color:#F2F2F7;border:none}
+.btn-print-xp80:hover{background:#0066CC}
+.btn-close-r{background:transparent;color:var(--color-text-secondary);border:0.5px solid var(--color-border-tertiary)}
+.printer-setup-box{background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:14px;margin:16px}
+.setup-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.setup-row label{font-size:13px;min-width:110px;color:var(--color-text-secondary)}
+.setup-row input,.setup-row select{flex:1;padding:6px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);font-size:13px;color:var(--color-text-primary)}
+.test-print-btn{padding:7px 14px;border-radius:var(--border-radius-md);background:#0A84FF;color:#F2F2F7;border:none;cursor:pointer;font-size:13px;font-weight:500}
+.save-settings-btn{padding:7px 14px;border-radius:var(--border-radius-md);background:#1E5C1E;color:#30D158;border:none;cursor:pointer;font-size:13px;font-weight:500}
+.orders-history{padding:16px;display:flex;flex-direction:column;gap:14px}
+.oh-table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+.oh-table th{text-align:left;padding:8px 10px;font-weight:500;font-size:12px;color:var(--color-text-secondary);border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary)}
+.oh-table td{padding:9px 10px;border-bottom:0.5px solid var(--color-border-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.oh-table tr:last-child td{border-bottom:none}
+.reprint-btn{padding:4px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:transparent;cursor:pointer;font-size:12px;color:#5AC8FA}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:var(--border-radius-md);font-size:13px;font-weight:500;z-index:200;display:none;white-space:nowrap}
+.toast.success{background:#1E5C1E;color:#30D158}
+.toast.error{background:#5C1E1E;color:#FF453A}
+.toast.info{background:#0A3D6B;color:#5AC8FA}
+.storage-badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:3px 8px;border-radius:10px;background:#1A3A1A;color:#30D158}
+.isz-btn{padding:18px 10px;border-radius:var(--border-radius-lg);border:0.5px solid var(--color-border-secondary);background:var(--color-background-secondary);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;transition:all 0.15s;min-width:80px}
+.isz-btn:hover,.isz-btn:active{border-color:#0A84FF;background:#0D2E4A}
+.isz-label{font-size:24px;font-weight:700;color:var(--color-text-primary)}
+.isz-price{font-size:13px;color:#30D158;font-weight:500}
+.inline-back{padding:5px 12px;border-radius:20px;border:0.5px solid var(--color-border-secondary);background:transparent;color:var(--color-text-secondary);cursor:pointer;font-size:12px}
+.inline-skip{padding:5px 14px;border-radius:20px;border:0.5px solid #30D158;background:transparent;color:#30D158;cursor:pointer;font-size:12px;font-weight:500}
+.kot-btn{padding:10px 12px;border-radius:var(--border-radius-md);background:#1E5C1E;color:#30D158;border:none;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap}
+.kot-btn:hover{background:#2A7A2A}
+</style>
+
+<div class="pos-wrap">
+  <div class="top-bar">
+    <span class="brand"><i class="ti ti-building-store" aria-hidden="true"></i> FFC &amp; Pizza POS <span style="font-size:11px;color:var(--color-text-secondary);font-weight:400">v2</span></span>
+    <div class="nav">
+      <button class="nav-btn active" onclick="showScreen('order',this)"><i class="ti ti-receipt" aria-hidden="true"></i> Orders</button>
+      <button class="nav-btn" onclick="showScreen('history',this)"><i class="ti ti-history" aria-hidden="true"></i> History</button>
+      <button class="nav-btn" onclick="showScreen('menu',this)"><i class="ti ti-tools-kitchen-2" aria-hidden="true"></i> Menu</button>
+      <button class="nav-btn" onclick="showScreen('inventory',this)"><i class="ti ti-box" aria-hidden="true"></i> Inventory</button>
+      <button class="nav-btn" onclick="showScreen('report',this)"><i class="ti ti-chart-bar" aria-hidden="true"></i> Reports</button>
+      <button class="nav-btn" onclick="showScreen('settings',this)"><i class="ti ti-settings" aria-hidden="true"></i> Printer</button>
+    </div>
+    <div class="printer-status">
+      <div class="status-dot" id="printer-dot"></div>
+      <span id="printer-label">Xprinter XP-B6 not connected</span>
+      <button onclick="connectLocalServer()" id="quick-connect-btn" style="margin-left:8px;padding:3px 10px;font-size:11px;border-radius:20px;border:0.5px solid var(--color-border-secondary);background:var(--color-background-secondary);color:var(--color-text-secondary);cursor:pointer;display:inline-flex;align-items:center;gap:4px"><i class="ti ti-server" aria-hidden="true"></i> Connect</button>
+    </div>
+  </div>
+
+  <!-- ORDER SCREEN -->
+  <div class="screen active" id="screen-order">
+    <div class="order-layout">
+      <div class="section-panel">
+        <div class="panel-head">
+          <span><i class="ti ti-armchair" aria-hidden="true"></i> Tables</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:11px;color:var(--color-text-secondary)" id="table-status-label">Select a table</span>
+            <button id="free-table-btn" onclick="freeCurrentTable()" style="display:none;padding:2px 8px;font-size:10px;border-radius:10px;border:0.5px solid #FF453A;background:transparent;color:#FF453A;cursor:pointer">Free</button>
+          </div>
+        </div>
+        <div class="order-type-row">
+          <button class="ot-btn active" id="ot-dine" onclick="setOrderType('dine')"><i class="ti ti-armchair" aria-hidden="true"></i> Dine-in</button>
+          <button class="ot-btn" id="ot-take" onclick="setOrderType('take')"><i class="ti ti-shopping-bag" aria-hidden="true"></i> Takeaway</button>
+          <button class="ot-btn" id="ot-zom" onclick="setOrderType('zom')"><i class="ti ti-moped" aria-hidden="true"></i> Zomato</button>
+        </div>
+        <div class="table-grid" id="table-grid"></div>
+        <div id="no-table-msg" style="display:none;flex:1;align-items:center;justify-content:center;flex-direction:column;gap:6px;color:var(--color-text-secondary);font-size:13px;padding:24px;text-align:center">
+          <i class="ti ti-shopping-bag" style="font-size:28px" aria-hidden="true"></i>
+          <span>No table needed</span>
+        </div>
+      </div>
+      <div class="section-panel">
+        <div class="panel-head"><i class="ti ti-tools-kitchen-2" aria-hidden="true"></i> Menu</div>
+        <div class="cat-row" id="cat-row"></div>
+        <div class="menu-grid" id="menu-grid"></div>
+      </div>
+      <div class="cart-panel">
+        <div class="panel-head">
+          <span><i class="ti ti-shopping-cart" aria-hidden="true"></i> Current order</span>
+          <span style="font-size:11px;color:var(--color-text-secondary)" id="order-label">—</span>
+        </div>
+        <div class="cart-items" id="cart-items">
+          <div class="cart-empty"><i class="ti ti-shopping-cart" style="font-size:28px;display:block;margin-bottom:8px" aria-hidden="true"></i>Add items to order</div>
+        </div>
+        <div class="cart-footer">
+          <div id="cart-summary"></div>
+          <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:6px;font-weight:500;margin-top:8px">Payment mode</div>
+          <div class="pay-row">
+            <button class="pay-btn active" id="pay-cash" onclick="setPayment('cash')"><i class="ti ti-cash" aria-hidden="true"></i> Cash</button>
+            <button class="pay-btn" id="pay-upi" onclick="setPayment('upi')"><i class="ti ti-device-mobile" aria-hidden="true"></i> UPI</button>
+            <button class="pay-btn" id="pay-card" onclick="setPayment('card')"><i class="ti ti-credit-card" aria-hidden="true"></i> Card</button>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr auto;gap:6px;margin-top:10px">
+            <button class="print-btn" style="margin-top:0" id="main-print-btn" onclick="placeOrder()"><i class="ti ti-printer" aria-hidden="true"></i> Place order & print</button>
+            <button class="kot-btn" onclick="printKOTOnly()" title="Print Kitchen Order Ticket"><i class="ti ti-tools-kitchen-2" aria-hidden="true"></i> KOT</button>
+          </div>
+          <button class="clear-btn" onclick="clearCart()"><i class="ti ti-trash" aria-hidden="true"></i> Clear order</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ORDER HISTORY -->
+  <div class="screen" id="screen-history">
+    <div class="orders-history">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:13px;font-weight:500"><i class="ti ti-history" aria-hidden="true"></i> Order history <span class="storage-badge"><i class="ti ti-database" aria-hidden="true"></i> Saved locally</span></div>
+        <button class="del-btn" onclick="clearHistory()" style="padding:6px 12px">Clear history</button>
+      </div>
+      <div style="background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden">
+        <table class="oh-table">
+          <thead><tr>
+            <th style="width:10%">#</th>
+            <th style="width:18%">Time</th>
+            <th style="width:16%">Type</th>
+            <th style="width:12%">Items</th>
+            <th style="width:14%">Total</th>
+            <th style="width:14%">Payment</th>
+            <th style="width:16%">Action</th>
+          </tr></thead>
+          <tbody id="history-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- MENU MANAGEMENT -->
+  <div class="screen" id="screen-menu">
+    <div class="mgmt-layout">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="font-size:13px;font-weight:500">Menu items <span class="storage-badge"><i class="ti ti-database" aria-hidden="true"></i> Saved locally</span></div>
+      </div>
+      <div class="mgmt-toolbar">
+        <input type="text" id="menu-search" placeholder="Search items..." oninput="renderMenuTable()"/>
+        <select id="menu-filter-cat" onchange="renderMenuTable()"><option value="all">All categories</option></select>
+        <button class="add-item-btn" onclick="openAddItem()"><i class="ti ti-plus" aria-hidden="true"></i> Add item</button>
+      </div>
+      <div style="background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden">
+        <table class="menu-table">
+          <thead><tr>
+            <th style="width:30%">Item</th><th style="width:18%">Category</th><th style="width:10%">Type</th><th style="width:12%">Price</th><th style="width:14%">Stock</th><th style="width:16%">Actions</th>
+          </tr></thead>
+          <tbody id="menu-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- INVENTORY -->
+  <div class="screen" id="screen-inventory">
+    <div class="inv-layout">
+      <div class="inv-cards" id="inv-cards"></div>
+      <div style="background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden">
+        <table class="inv-table">
+          <thead><tr>
+            <th style="width:25%">Ingredient</th><th style="width:15%">Unit</th><th style="width:18%">In stock</th><th style="width:18%">Min level</th><th style="width:24%">Status</th>
+          </tr></thead>
+          <tbody id="inv-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- REPORTS -->
+  <div class="screen" id="screen-report">
+    <div class="report-layout">
+      <div class="report-cards" id="report-cards"></div>
+      <div class="report-grid">
+        <div class="rep-box"><div class="rep-box-title"><i class="ti ti-chart-bar" aria-hidden="true"></i> Hourly sales (today)</div><div class="bar-chart" id="bar-chart"></div></div>
+        <div class="rep-box"><div class="rep-box-title"><i class="ti ti-star" aria-hidden="true"></i> Top selling items</div><div class="top-items" id="top-items"></div></div>
+        <div class="rep-box"><div class="rep-box-title"><i class="ti ti-moped" aria-hidden="true"></i> Sales by channel</div><div class="channel-list" id="channel-list"></div></div>
+        <div class="rep-box"><div class="rep-box-title"><i class="ti ti-credit-card" aria-hidden="true"></i> Payment breakdown</div><div class="channel-list" id="payment-list"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PRINTER SETTINGS -->
+  <div class="screen" id="screen-settings">
+    <div style="padding:16px;display:flex;flex-direction:column;gap:14px">
+      <div style="font-size:13px;font-weight:500"><i class="ti ti-printer" aria-hidden="true"></i> Xprinter XP-B6 setup <span class="storage-badge"><i class="ti ti-database" aria-hidden="true"></i> Settings saved</span></div>
+      <div class="printer-setup-box">
+        <div style="font-size:13px;font-weight:500;margin-bottom:12px;color:var(--color-text-primary)">Restaurant details</div>
+        <div class="setup-row"><label>Shop name</label><input type="text" id="cfg-shopname" placeholder="FFC &amp; Pizza"/></div>
+        <div class="setup-row"><label>Address line 1</label><input type="text" id="cfg-addr1" placeholder="Shop No 4, Hari Om Tower"/></div>
+        <div class="setup-row"><label>Address line 2</label><input type="text" id="cfg-addr2" placeholder="Ranchi, JH - 835222"/></div>
+        <div class="setup-row"><label>Phone</label><input type="text" id="cfg-phone" placeholder="9104020814"/></div>
+        <div class="setup-row"><label>GST number</label><input type="text" id="cfg-gstno" placeholder="Optional"/></div>
+        <div class="setup-row"><label>Tax label</label><input type="text" id="cfg-taxlabel" placeholder="GST"/></div>
+        <div class="setup-row"><label>Tax rate (%)</label><input type="number" id="cfg-taxrate" placeholder="5" min="0" max="100"/></div>
+        <div class="setup-row"><label>Footer message</label><input type="text" id="cfg-footer" placeholder="Thank You! Visit Again."/></div>
+        <div style="font-size:13px;font-weight:500;margin:14px 0 10px;color:var(--color-text-primary)">Connection settings</div>
+        <div class="setup-row"><label>Printer name</label><input type="text" id="cfg-name" value="Xprinter XP-B6" placeholder="Xprinter XP-B6"/></div>
+        <div class="setup-row"><label>Paper width</label><select id="cfg-paper"><option value="80">80mm (3.15")</option><option value="58">58mm (2.28")</option></select></div>
+        <div class="setup-row"><label>Print density</label><select id="cfg-density"><option value="0">Default</option><option value="1">Light</option><option value="2">Medium</option><option value="3">Dark</option></select></div>
+        <div class="setup-row"><label>Auto-cut</label><select id="cfg-cut"><option value="1">Enabled</option><option value="0">Disabled</option></select></div>
+        <div class="setup-row"><label>Cash drawer</label><select id="cfg-drawer"><option value="0">Disabled</option><option value="1">Open on print</option></select></div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="save-settings-btn" onclick="saveSettings()"><i class="ti ti-device-floppy" aria-hidden="true"></i> Save settings</button>
+          <button class="test-print-btn" onclick="testPrint()"><i class="ti ti-printer" aria-hidden="true"></i> Test print</button>
+        </div>
+      </div>
+      <div class="printer-setup-box">
+        <div style="font-size:13px;font-weight:500;margin-bottom:10px"><i class="ti ti-brand-google" aria-hidden="true"></i> Google Sheets menu sync <span id="sheets-sync-badge" class="storage-badge" style="display:none"></span></div>
+        <div style="font-size:12px;color:var(--color-text-secondary);line-height:1.8;margin-bottom:10px">
+          Paste your Google Sheets CSV URL below. Menu auto-syncs every time the POS loads.<br>
+          <b style="color:var(--color-text-primary)">How to get the URL:</b> In Google Sheets → <i>File → Share → Publish to web → Sheet1 → CSV → Publish</i> → copy the link.
+        </div>
+        <div class="setup-row"><label>CSV URL</label><input type="text" id="cfg-sheets-url" placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv" style="font-size:11px;font-family:var(--font-mono)"/></div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="save-settings-btn" onclick="saveSheetUrl()"><i class="ti ti-device-floppy" aria-hidden="true"></i> Save URL</button>
+          <button class="test-print-btn" onclick="syncMenuFromSheets(true)"><i class="ti ti-refresh" aria-hidden="true"></i> Sync now</button>
+        </div>
+      </div>
+      <div class="printer-setup-box">
+        <div style="font-size:13px;font-weight:500;margin-bottom:10px"><i class="ti ti-users" aria-hidden="true"></i> Customer database <span id="cdb-badge" class="storage-badge" style="display:none"></span></div>
+        <div style="font-size:12px;color:var(--color-text-secondary);line-height:1.8;margin-bottom:10px">
+          Saves customer name + phone to Google Sheets on every bill.<br>
+          <b style="color:var(--color-text-primary)">How to set up:</b> In your customer Google Sheet → <i>Extensions → Apps Script</i> → paste the <b>CustomerDB.gs</b> code → Deploy as Web App → copy the URL below.
+        </div>
+        <div class="setup-row"><label>Web App URL</label><input type="text" id="cfg-cdb-url" placeholder="https://script.google.com/macros/s/.../exec" style="font-size:11px;font-family:var(--font-mono)"/></div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="save-settings-btn" onclick="saveCdbUrl()"><i class="ti ti-device-floppy" aria-hidden="true"></i> Save URL</button>
+          <button class="test-print-btn" onclick="testCdbConnection()"><i class="ti ti-plug" aria-hidden="true"></i> Test connection</button>
+        </div>
+      </div>
+        <div style="font-size:13px;color:var(--color-text-secondary);line-height:1.8">
+          1. Make sure Xprinter XP-B6 is plugged in via USB and powered on<br>
+          2. Use Chrome or Edge browser (Web USB supported)<br>
+          3. Click "Connect XP-B6" below — browser will ask permission<br>
+          4. Select your Xprinter XP-B6 from the popup list<br>
+          5. Green dot = connected and ready to print
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="test-print-btn" onclick="connectWebUSB()" id="connect-btn"><i class="ti ti-usb" aria-hidden="true"></i> Connect XP-B6 via USB</button>
+          <button class="modal-cancel" style="padding:7px 14px;border-radius:var(--border-radius-md);cursor:pointer;font-size:13px" onclick="disconnectPrinter()"><i class="ti ti-plug-x" aria-hidden="true"></i> Disconnect</button>
+        </div>
+      </div>
+      <div class="printer-setup-box">
+        <div style="font-size:13px;font-weight:500;margin-bottom:10px">ESC/POS Node.js setup (desktop app)</div>
+        <div style="font-size:12px;color:var(--color-text-secondary);background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px;font-family:var(--font-mono);line-height:1.8">
+          npm install escpos escpos-usb<br>
+          node print-server.js<br>
+          # Then this POS connects to localhost:6789
+        </div>
+        <button class="test-print-btn" style="margin-top:10px" onclick="connectLocalServer()"><i class="ti ti-server" aria-hidden="true"></i> Connect to local print server</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ITEM MODAL -->
+<div class="modal-overlay" id="item-modal">
+  <div class="modal">
+    <h3 id="modal-title">Add menu item</h3>
+    <label>Item name</label><input type="text" id="mi-name" placeholder="e.g. Chicken Burger"/>
+    <label>Category</label>
+    <select id="mi-cat"><option>Pizza</option><option>Add-ons</option><option>Pasta</option><option>Burger</option><option>Sandwich</option><option>Garlic Bread</option><option>Wrap</option><option>Fries</option><option>Beverage</option></select>
+    <label>Type</label><select id="mi-type"><option value="veg">Veg</option><option value="nonveg">Non-veg</option></select>
+    <label>Price (₹)</label><input type="number" id="mi-price" placeholder="e.g. 149"/>
+    <label>Stock status</label><select id="mi-stock"><option value="in">In stock</option><option value="low">Low stock</option><option value="out">Out of stock</option></select>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeModal()">Cancel</button>
+      <button class="modal-save" onclick="saveItem()">Save item</button>
+    </div>
+  </div>
+</div>
+
+<!-- CUSTOMER CAPTURE MODAL -->
+<div class="modal-overlay" id="customer-modal">
+  <div class="modal" style="width:340px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <h3 style="font-size:15px">Customer details</h3>
+      <span id="cust-returning" style="display:none;font-size:11px;padding:3px 8px;border-radius:10px;background:#1A3A1A;color:#30D158"></span>
+    </div>
+    <p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:14px">Optional — for loyalty & promotions</p>
+    <label style="font-size:12px;color:var(--color-text-secondary);display:block;margin-bottom:4px">Phone number</label>
+    <input type="tel" id="cust-phone" placeholder="Enter phone number" style="width:100%;padding:8px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-secondary);color:var(--color-text-primary);font-size:14px;margin-bottom:10px" oninput="lookupCustomer(this.value)"/>
+    <label style="font-size:12px;color:var(--color-text-secondary);display:block;margin-bottom:4px">Customer name</label>
+    <input type="text" id="cust-name" placeholder="Enter name" style="width:100%;padding:8px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-secondary);color:var(--color-text-primary);font-size:14px;margin-bottom:16px"/>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <button onclick="skipCustomer()" style="padding:10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:transparent;color:var(--color-text-secondary);cursor:pointer;font-size:13px">Skip</button>
+      <button onclick="saveCustomerAndBill()" style="padding:10px;border-radius:var(--border-radius-md);background:#0A84FF;color:#F2F2F7;border:none;cursor:pointer;font-size:13px;font-weight:500">Save & Print Bill</button>
+    </div>
+  </div>
+</div>
+
+<!-- RECEIPT MODAL -->
+<div class="modal-overlay" id="receipt-modal">
+  <div class="receipt-modal">
+    <div class="r-title" id="r-shop-name">FFC &amp; Pizza</div>
+    <div class="r-sub" id="r-meta"></div>
+    <hr class="r-divider">
+    <div id="r-items"></div>
+    <hr class="r-divider">
+    <div id="r-totals"></div>
+    <div class="r-footer">Thank You! Visit Again.<br>FFC &amp; Pizza</div>
+    <div class="receipt-btns">
+      <button class="btn-print-xp80" onclick="printOnXP80()"><i class="ti ti-printer" aria-hidden="true"></i> Print Bill</button>
+      <button class="btn-print-xp80" style="background:#1E5C1E;color:#30D158" onclick="printKOT(currentReceiptData)"><i class="ti ti-tools-kitchen-2" aria-hidden="true"></i> Print KOT</button>
+      <button class="btn-close-r" onclick="closeReceipt()">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const STORE_KEYS={menu:'pos_menu',orders:'pos_orders',settings:'pos_settings',tables:'pos_tables'};
+let printerDevice=null;
+let printerConnected=false;
+let localServerConnected=false;
+let currentReceiptData=null;
+
+const DEFAULT_MENU=[
+  {id:1,name:'Margherita (S)',cat:'Pizza',type:'veg',price:139,stock:'in'},
+  {id:2,name:'Margherita (M)',cat:'Pizza',type:'veg',price:259,stock:'in'},
+  {id:3,name:'Margherita (L)',cat:'Pizza',type:'veg',price:429,stock:'in'},
+  {id:4,name:'Veggie Pizza (S)',cat:'Pizza',type:'veg',price:149,stock:'in'},
+  {id:5,name:'Veggie Pizza (M)',cat:'Pizza',type:'veg',price:279,stock:'in'},
+  {id:6,name:'Veggie Pizza (L)',cat:'Pizza',type:'veg',price:449,stock:'in'},
+  {id:7,name:'Paneer Onion Capsicum (S)',cat:'Pizza',type:'veg',price:159,stock:'in'},
+  {id:8,name:'Paneer Onion Capsicum (M)',cat:'Pizza',type:'veg',price:299,stock:'in'},
+  {id:9,name:'Paneer Onion Capsicum (L)',cat:'Pizza',type:'veg',price:489,stock:'in'},
+  {id:10,name:'Paneer Makhni (S)',cat:'Pizza',type:'veg',price:159,stock:'in'},
+  {id:11,name:'Paneer Makhni (M)',cat:'Pizza',type:'veg',price:299,stock:'in'},
+  {id:12,name:'Paneer Makhni (L)',cat:'Pizza',type:'veg',price:489,stock:'in'},
+  {id:13,name:'Mushroom Olive (S)',cat:'Pizza',type:'veg',price:169,stock:'in'},
+  {id:14,name:'Mushroom Olive (M)',cat:'Pizza',type:'veg',price:319,stock:'in'},
+  {id:15,name:'Mushroom Olive (L)',cat:'Pizza',type:'veg',price:529,stock:'in'},
+  {id:16,name:'Spicy Paneer (S)',cat:'Pizza',type:'veg',price:189,stock:'in'},
+  {id:17,name:'Spicy Paneer (M)',cat:'Pizza',type:'veg',price:339,stock:'in'},
+  {id:18,name:'Spicy Paneer (L)',cat:'Pizza',type:'veg',price:549,stock:'in'},
+  {id:19,name:'Peppy Paneer (S)',cat:'Pizza',type:'veg',price:239,stock:'in'},
+  {id:20,name:'Peppy Paneer (M)',cat:'Pizza',type:'veg',price:349,stock:'in'},
+  {id:21,name:'Peppy Paneer (L)',cat:'Pizza',type:'veg',price:569,stock:'in'},
+  {id:22,name:'Veg Paradise (S)',cat:'Pizza',type:'veg',price:259,stock:'in'},
+  {id:23,name:'Veg Paradise (M)',cat:'Pizza',type:'veg',price:369,stock:'in'},
+  {id:24,name:'Veg Paradise (L)',cat:'Pizza',type:'veg',price:589,stock:'in'},
+  {id:25,name:'Farmland (S)',cat:'Pizza',type:'veg',price:269,stock:'in'},
+  {id:26,name:'Farmland (M)',cat:'Pizza',type:'veg',price:379,stock:'in'},
+  {id:27,name:'Farmland (L)',cat:'Pizza',type:'veg',price:599,stock:'in'},
+  {id:28,name:'Cheesy Chicken (S)',cat:'Pizza',type:'nonveg',price:189,stock:'in'},
+  {id:29,name:'Cheesy Chicken (M)',cat:'Pizza',type:'nonveg',price:299,stock:'in'},
+  {id:30,name:'Cheesy Chicken (L)',cat:'Pizza',type:'nonveg',price:519,stock:'in'},
+  {id:31,name:'Chicken Mushroom (S)',cat:'Pizza',type:'nonveg',price:229,stock:'in'},
+  {id:32,name:'Chicken Mushroom (M)',cat:'Pizza',type:'nonveg',price:339,stock:'in'},
+  {id:33,name:'Chicken Mushroom (L)',cat:'Pizza',type:'nonveg',price:559,stock:'in'},
+  {id:34,name:'Chicken Farm (S)',cat:'Pizza',type:'nonveg',price:269,stock:'in'},
+  {id:35,name:'Chicken Farm (M)',cat:'Pizza',type:'nonveg',price:359,stock:'in'},
+  {id:36,name:'Chicken Farm (L)',cat:'Pizza',type:'nonveg',price:579,stock:'in'},
+  {id:37,name:'Royal Chicken (S)',cat:'Pizza',type:'nonveg',price:279,stock:'in'},
+  {id:38,name:'Royal Chicken (M)',cat:'Pizza',type:'nonveg',price:379,stock:'in'},
+  {id:39,name:'Royal Chicken (L)',cat:'Pizza',type:'nonveg',price:619,stock:'in'},
+  {id:40,name:'Cheesy Pizza',cat:'Pizza Mania',type:'veg',price:89,stock:'in'},
+  {id:41,name:'Cheese Corn',cat:'Pizza Mania',type:'veg',price:99,stock:'in'},
+  {id:42,name:'Onion',cat:'Pizza Mania',type:'veg',price:99,stock:'in'},
+  {id:43,name:'Capsicum',cat:'Pizza Mania',type:'veg',price:99,stock:'in'},
+  {id:44,name:'Extra Cheese (S)',cat:'Add-ons',type:'veg',price:30,stock:'in'},
+  {id:45,name:'Extra Cheese (M)',cat:'Add-ons',type:'veg',price:50,stock:'in'},
+  {id:46,name:'Extra Cheese (L)',cat:'Add-ons',type:'veg',price:70,stock:'in'},
+  {id:47,name:'White Sauce Pasta',cat:'Pasta',type:'veg',price:129,stock:'in'},
+  {id:48,name:'Hot Garlic Cheese Pasta',cat:'Pasta',type:'veg',price:139,stock:'in'},
+  {id:49,name:'Mixed Sauce Pasta',cat:'Pasta',type:'veg',price:159,stock:'in'},
+  {id:50,name:'FFC Special Mac & Cheese',cat:'Pasta',type:'veg',price:199,stock:'in'},
+  {id:51,name:'Chicken Cheese Corn Pasta',cat:'Pasta',type:'nonveg',price:179,stock:'in'},
+  {id:52,name:'Chicken Red Sauce Pasta',cat:'Pasta',type:'nonveg',price:199,stock:'in'},
+  {id:53,name:'FFC Special Mac & Cheese Chicken',cat:'Pasta',type:'nonveg',price:239,stock:'in'},
+  {id:54,name:'Aloo Patty Burger',cat:'Burger',type:'veg',price:69,stock:'in'},
+  {id:55,name:'Herb Aloo Patty Burger',cat:'Burger',type:'veg',price:89,stock:'in'},
+  {id:56,name:'Double Trouble Veg Burger',cat:'Burger',type:'veg',price:109,stock:'in'},
+  {id:57,name:'Classic Paneer Burger',cat:'Burger',type:'veg',price:129,stock:'in'},
+  {id:58,name:'Paneer Delight',cat:'Burger',type:'veg',price:149,stock:'in'},
+  {id:59,name:'Classic Chicken Burger',cat:'Burger',type:'nonveg',price:119,stock:'in'},
+  {id:60,name:'Classic Double Chicken Burger',cat:'Burger',type:'nonveg',price:139,stock:'in'},
+  {id:61,name:'Crunchy Chicken Burger',cat:'Burger',type:'nonveg',price:149,stock:'in'},
+  {id:62,name:'Crunchy Double Chicken Burger',cat:'Burger',type:'nonveg',price:169,stock:'in'},
+  {id:63,name:'Extra Cheese Slice',cat:'Add-ons',type:'veg',price:20,stock:'in'},
+  {id:64,name:'Veg Sandwich',cat:'Sandwich',type:'veg',price:99,stock:'in'},
+  {id:65,name:'Paneer Sandwich',cat:'Sandwich',type:'veg',price:119,stock:'in'},
+  {id:66,name:'Chicken Sandwich',cat:'Sandwich',type:'nonveg',price:139,stock:'in'},
+  {id:67,name:'Cheese Garlic Bread',cat:'Garlic Bread',type:'veg',price:99,stock:'in'},
+  {id:68,name:'Corn Cheese Garlic Bread',cat:'Garlic Bread',type:'veg',price:119,stock:'in'},
+  {id:69,name:'Paneer Garlic Bread',cat:'Garlic Bread',type:'veg',price:149,stock:'in'},
+  {id:70,name:'Chicken Cheese Garlic Bread',cat:'Garlic Bread',type:'nonveg',price:179,stock:'in'},
+  {id:71,name:'Veg Wrap',cat:'Wrap',type:'veg',price:99,stock:'in'},
+  {id:72,name:'Paneer Wrap',cat:'Wrap',type:'veg',price:119,stock:'in'},
+  {id:73,name:'Chicken Wrap',cat:'Wrap',type:'nonveg',price:139,stock:'in'},
+  {id:74,name:'Classic Salted Fries',cat:'Fries',type:'veg',price:69,stock:'in'},
+  {id:75,name:'Peri Peri Fries',cat:'Fries',type:'veg',price:89,stock:'in'},
+  {id:76,name:'Veg Nuggets (R)',cat:'Fries',type:'veg',price:79,stock:'in'},
+  {id:77,name:'Veg Nuggets (L)',cat:'Fries',type:'veg',price:139,stock:'in'},
+  {id:78,name:'Cheese Fries',cat:'Fries',type:'veg',price:129,stock:'in'},
+  {id:79,name:'Chicken Popcorn (R)',cat:'Fries',type:'nonveg',price:79,stock:'in'},
+  {id:80,name:'Chicken Popcorn (L)',cat:'Fries',type:'nonveg',price:149,stock:'in'},
+  {id:81,name:'Chicken Nuggets (R)',cat:'Fries',type:'nonveg',price:99,stock:'in'},
+  {id:82,name:'Chicken Nuggets (L)',cat:'Fries',type:'nonveg',price:169,stock:'in'},
+  {id:83,name:'Chicken Boneless (R)',cat:'Fries',type:'nonveg',price:189,stock:'in'},
+  {id:84,name:'Chicken Boneless (L)',cat:'Fries',type:'nonveg',price:269,stock:'in'},
+  {id:85,name:'Chicken Loaded Fries (R)',cat:'Fries',type:'nonveg',price:199,stock:'in'},
+  {id:86,name:'Chicken Loaded Fries (L)',cat:'Fries',type:'nonveg',price:279,stock:'in'},
+  {id:87,name:'Chicken Wings (R)',cat:'Fries',type:'nonveg',price:319,stock:'in'},
+  {id:88,name:'Chicken Wings (L)',cat:'Fries',type:'nonveg',price:599,stock:'in'},
+  {id:89,name:'Chicken Bucket (R)',cat:'Fries',type:'nonveg',price:339,stock:'in'},
+  {id:90,name:'Chicken Bucket (L)',cat:'Fries',type:'nonveg',price:629,stock:'in'},
+  {id:91,name:'Coke',cat:'Beverage',type:'veg',price:20,stock:'in'},
+  {id:92,name:'Vanilla Shake',cat:'Beverage',type:'veg',price:119,stock:'in'},
+  {id:93,name:'Kitkat Shake',cat:'Beverage',type:'veg',price:139,stock:'in'},
+  {id:94,name:'Oreo Shake',cat:'Beverage',type:'veg',price:139,stock:'in'},
+  {id:95,name:'Cold Coffee',cat:'Beverage',type:'veg',price:129,stock:'in'},
+  {id:96,name:'Orange Shake',cat:'Beverage',type:'veg',price:119,stock:'in'},
+  {id:97,name:'Strawberry Shake',cat:'Beverage',type:'veg',price:119,stock:'in'},
+  {id:98,name:'Chocolate Shake',cat:'Beverage',type:'veg',price:129,stock:'in'},
+  {id:99,name:'Spicy Mango Mojito',cat:'Beverage',type:'veg',price:119,stock:'in'},
+  {id:100,name:'Mineral Water (S)',cat:'Beverage',type:'veg',price:10,stock:'in'},
+  {id:101,name:'Mineral Water (L)',cat:'Beverage',type:'veg',price:20,stock:'in'},
+];
+
+const DEFAULT_SETTINGS={name:'Xprinter XP-B6',paper:'80',density:'0',cut:'1',drawer:'0',shopName:'FFC & Pizza',shopAddress:'Shop No 4, Hari Om Tower, Gutua',shopAddress2:'Ranchi, JH - 835222',shopPhone:'9104020814',shopGST:'',shopFooter:'Thank You! Visit Again.',taxLabel:'GST',taxRate:'5',sheetsUrl:'',customerDbUrl:''};
+
+function loadData(key,fallback){try{const v=localStorage.getItem(key);return v?JSON.parse(v):fallback;}catch(e){return fallback;}}
+function saveData(key,val){try{localStorage.setItem(key,JSON.stringify(val));}catch(e){showToast('Storage error','error');}}
+
+let menuData=loadData(STORE_KEYS.menu,DEFAULT_MENU);
+let orderHistory=loadData(STORE_KEYS.orders,[]);
+let settings=loadData(STORE_KEYS.settings,DEFAULT_SETTINGS);
+let tableStates=loadData(STORE_KEYS.tables,{});
+
+let cart=[];
+let selectedTable=null;
+let orderType='dine';
+let paymentMode='cash';
+let activeCategory='All';
+let editingId=null;
+const todayStr=new Date().toISOString().slice(0,10);
+const lastOrderDate=localStorage.getItem('pos_order_date');
+if(lastOrderDate!==todayStr){
+  localStorage.setItem('pos_order_date',todayStr);
+  localStorage.removeItem('pos_order_counter');
+}
+const savedCounter=parseInt(localStorage.getItem('pos_order_counter'));
+let orderCounter=savedCounter>0?savedCounter+1:1;
+
+const tables=Array.from({length:9},(_,i)=>({id:i+1}));
+const inventory=[
+  {name:'Burger Buns',unit:'pcs',qty:120,min:30},{name:'Chicken Patty',unit:'pcs',qty:45,min:20},
+  {name:'Veg Patty',unit:'pcs',qty:80,min:25},{name:'Pizza Base (6")',unit:'pcs',qty:18,min:20},
+  {name:'Pizza Base (8")',unit:'pcs',qty:30,min:15},{name:'Mozzarella Cheese',unit:'kg',qty:2.5,min:2},
+  {name:'Potatoes',unit:'kg',qty:8,min:5},{name:'Chicken Wings',unit:'kg',qty:3,min:2},
+  {name:'Soft Drink Cans',unit:'pcs',qty:5,min:20},{name:'Cooking Oil',unit:'L',qty:6,min:3},
+];
+
+function applySettings(){
+  document.getElementById('cfg-shopname').value=settings.shopName||'FFC & Pizza';
+  document.getElementById('cfg-addr1').value=settings.shopAddress||'';
+  document.getElementById('cfg-addr2').value=settings.shopAddress2||'';
+  document.getElementById('cfg-phone').value=settings.shopPhone||'';
+  document.getElementById('cfg-gstno').value=settings.shopGST||'';
+  document.getElementById('cfg-taxlabel').value=settings.taxLabel||'GST';
+  document.getElementById('cfg-taxrate').value=settings.taxRate||'5';
+  document.getElementById('cfg-footer').value=settings.shopFooter||'Thank You! Visit Again.';
+  document.getElementById('cfg-sheets-url').value=settings.sheetsUrl||'';
+  document.getElementById('cfg-cdb-url').value=settings.customerDbUrl||'';
+  document.getElementById('cfg-paper').value=settings.paper||'80';
+  document.getElementById('cfg-density').value=settings.density||'0';
+  document.getElementById('cfg-cut').value=settings.cut||'1';
+  document.getElementById('cfg-drawer').value=settings.drawer||'0';
+}
+
+function saveSettings(){
+  settings={
+    name:document.getElementById('cfg-name').value,
+    paper:document.getElementById('cfg-paper').value,
+    density:document.getElementById('cfg-density').value,
+    cut:document.getElementById('cfg-cut').value,
+    drawer:document.getElementById('cfg-drawer').value,
+    shopName:document.getElementById('cfg-shopname').value,
+    shopAddress:document.getElementById('cfg-addr1').value,
+    shopAddress2:document.getElementById('cfg-addr2').value,
+    shopPhone:document.getElementById('cfg-phone').value,
+    shopGST:document.getElementById('cfg-gstno').value,
+    taxLabel:document.getElementById('cfg-taxlabel').value||'GST',
+    taxRate:document.getElementById('cfg-taxrate').value||'5',
+    sheetsUrl:document.getElementById('cfg-sheets-url').value.trim(),
+    customerDbUrl:document.getElementById('cfg-cdb-url').value.trim()
+  };
+  saveData(STORE_KEYS.settings,settings);
+  showToast('Printer settings saved','success');
+}
+
+function showScreen(name,btn){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById('screen-'+name).classList.add('active');
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  if(btn)btn.classList.add('active');
+  if(name==='menu')renderMenuTable();
+  if(name==='inventory')renderInventory();
+  if(name==='report')renderReport();
+  if(name==='history')renderHistory();
+  if(name==='settings')applySettings();
+}
+
+function setOrderType(t){
+  orderType=t;
+  ['dine','take','zom'].forEach(x=>document.getElementById('ot-'+x).classList.remove('active'));
+  document.getElementById('ot-'+t).classList.add('active');
+  const isDine=t==='dine';
+  document.getElementById('table-grid').style.display=isDine?'grid':'none';
+  document.getElementById('no-table-msg').style.display=isDine?'none':'flex';
+  document.getElementById('free-table-btn').style.display='none';
+  if(!isDine){selectedTable=null;document.querySelectorAll('.tbl').forEach(el=>el.classList.remove('selected'));document.getElementById('table-status-label').textContent='No table';}
+  updateOrderLabel();
+}
+
+function setPayment(m){
+  paymentMode=m;
+  ['cash','upi','card'].forEach(x=>document.getElementById('pay-'+x).classList.remove('active'));
+  document.getElementById('pay-'+m).classList.add('active');
+}
+
+function initTables(){
+  const g=document.getElementById('table-grid');
+  g.innerHTML='';
+  tables.forEach(t=>{
+    const occupied=tableStates[t.id]==='occupied';
+    const div=document.createElement('div');
+    div.className='tbl'+(occupied?' occupied':'')+(selectedTable===t.id?' selected':'');
+    div.id='tbl-'+t.id;
+    div.innerHTML=`<div class="tnum">T${t.id}</div><div class="tstat">${occupied?'Occupied':'Free'}</div>`;
+    div.onclick=()=>selectTable(t.id);
+    g.appendChild(div);
+  });
+}
+
+function selectTable(id){
+  if(orderType!=='dine')return;
+  selectedTable=id;
+  document.querySelectorAll('.tbl').forEach(el=>el.classList.remove('selected'));
+  const el=document.getElementById('tbl-'+id);
+  el.classList.add('selected');
+  document.getElementById('table-status-label').textContent='Table '+id;
+  document.getElementById('free-table-btn').style.display='inline-block';
+  cart=loadData('pos_cart_t'+id,[]);
+  updateOrderLabel();
+  renderCart();
+}
+
+function freeCurrentTable(){
+  if(!selectedTable)return;
+  delete tableStates[selectedTable];
+  saveData(STORE_KEYS.tables,tableStates);
+  const tEl=document.getElementById('tbl-'+selectedTable);
+  if(tEl){tEl.className='tbl';tEl.querySelector('.tstat').textContent='Free';}
+  saveData('pos_cart_t'+selectedTable,[]);
+  clearKOTState(selectedTable);
+  cart=[];
+  selectedTable=null;
+  document.getElementById('table-status-label').textContent='Select a table';
+  document.getElementById('free-table-btn').style.display='none';
+  updateOrderLabel();
+  renderCart();
+  showToast('Table freed','success');
+}
+
+function updateOrderLabel(){
+  const el=document.getElementById('order-label');
+  if(orderType==='dine')el.textContent=selectedTable?'Table '+selectedTable:'Select table';
+  else if(orderType==='take')el.textContent='Takeaway';
+  else el.textContent='Zomato';
+}
+
+function getCategories(){return['All',...new Set(menuData.map(m=>m.cat))];}
+
+const SIZE_CATS=['Pizza','Add-ons'];
+const ADDON_CATS={Burger:[63]}; // category → add-on item IDs shown after selection
+function getBaseName(n){return n.replace(/ \([SMLRsmlr]\)$/,'').trim();}
+function getSizeLabel(n){const m=n.match(/\(([SMLRsmlr])\)$/);return m?m[1]:'';}
+
+function groupBySizes(items){
+  const groups={};
+  items.forEach(item=>{
+    if(item.stock==='out')return;
+    const base=getBaseName(item.name);
+    const key=base+'||'+item.cat;
+    if(!groups[key])groups[key]={base,cat:item.cat,type:item.type,sizes:[]};
+    const sz=getSizeLabel(item.name)||'S';
+    groups[key].sizes.push({id:item.id,size:sz,price:item.price,name:item.name});
+  });
+  Object.values(groups).forEach(g=>g.sizes.sort((a,b)=>['S','M','L','R'].indexOf(a.size)-['S','M','L','R'].indexOf(b.size)));
+  return Object.values(groups);
+}
+
+function renderItemCard(grid,item,onclick){
+  const div=document.createElement('div');
+  div.className='menu-item';
+  div.innerHTML=`<div class="mname">${item.name}</div><div class="mprice">₹${item.price}</div><span class="mbadge ${item.type}">${item.type==='veg'?'Veg':'Non-veg'}</span>`;
+  div.onclick=onclick;
+  grid.appendChild(div);
+}
+
+function renderGroupCard(grid,group){
+  const div=document.createElement('div');
+  div.className='menu-item';
+  const sizes=group.sizes.map(s=>s.size).join('/');
+  const fromPrice=group.sizes[0].price;
+  div.innerHTML=`<div class="mname">${group.base}</div><div class="mprice">₹${fromPrice} <span style="font-size:9px;color:var(--color-text-tertiary)">${sizes}</span></div><span class="mbadge ${group.type}">${group.type==='veg'?'Veg':'Non-veg'}</span>`;
+  div.onclick=()=>{
+    if(group.sizes.length===1){const item=menuData.find(m=>m.id===group.sizes[0].id);if(item)addToCart(item);}
+    else showSizePicker(group);
+  };
+  grid.appendChild(div);
+}
+
+function initMenu(){
+  const cats=getCategories();
+  const row=document.getElementById('cat-row');
+  row.innerHTML='';
+  cats.forEach(c=>{
+    const btn=document.createElement('button');
+    btn.className='cat-btn'+(c===activeCategory?' active':'');
+    btn.textContent=c;
+    btn.onclick=()=>{activeCategory=c;initMenu();};
+    row.appendChild(btn);
+  });
+  const items=activeCategory==='All'?menuData:menuData.filter(m=>m.cat===activeCategory);
+  const grid=document.getElementById('menu-grid');
+  grid.innerHTML='';
+  if(activeCategory==='All'){
+    // Group size items, show others normally
+    const sizeItems=items.filter(i=>SIZE_CATS.includes(i.cat)&&getSizeLabel(i.name));
+    const normalItems=items.filter(i=>!SIZE_CATS.includes(i.cat)||!getSizeLabel(i.name));
+    groupBySizes(sizeItems).forEach(g=>renderGroupCard(grid,g));
+    normalItems.forEach(item=>{
+      if(item.stock!=='out'){
+        const addonIds=ADDON_CATS[item.cat];
+        renderItemCard(grid,item,addonIds?()=>onItemWithAddon(item,addonIds):()=>addToCart(item));
+      }
+    });
+  } else if(SIZE_CATS.includes(activeCategory)){
+    groupBySizes(items).forEach(g=>renderGroupCard(grid,g));
+  } else {
+    const addonIds=ADDON_CATS[activeCategory];
+    items.forEach(item=>{
+      if(item.stock!=='out')
+        renderItemCard(grid,item,addonIds?()=>onItemWithAddon(item,addonIds):()=>addToCart(item));
+    });
+  }
+}
+
+function showSizePicker(group){
+  const grid=document.getElementById('menu-grid');
+  grid.innerHTML=`
+    <div style="grid-column:1/-1;padding:14px 16px;border-bottom:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <button class="inline-back" onclick="initMenu()">← Back</button>
+        <span style="font-size:15px;font-weight:600">${group.base}</span>
+        <span class="mbadge ${group.type}" style="font-size:10px">${group.type==='veg'?'Veg':'Non-veg'}</span>
+      </div>
+      <span style="font-size:12px;color:var(--color-text-secondary)">Select size</span>
+    </div>
+    <div style="grid-column:1/-1;display:flex;gap:14px;padding:10px 16px 20px;justify-content:center">
+      ${group.sizes.map(s=>`
+        <button class="isz-btn" onclick="onSizeSelected(${s.id},'${s.size}')">
+          <span class="isz-label">${s.size}</span>
+          <span class="isz-price">₹${s.price}</span>
+        </button>`).join('')}
+    </div>`;
+}
+
+function onSizeSelected(pizzaItemId, sizeLabel){
+  addToCartById(pizzaItemId);
+  const addons=menuData.filter(m=>m.cat==='Add-ons'&&getSizeLabel(m.name)===sizeLabel&&m.stock!=='out');
+  if(!addons.length){initMenu();return;}
+  const pizzaName=menuData.find(m=>m.id===pizzaItemId)?.name||'';
+  const grid=document.getElementById('menu-grid');
+  grid.innerHTML=`
+    <div style="grid-column:1/-1;padding:14px 16px;border-bottom:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <button class="inline-back" onclick="initMenu()">← Menu</button>
+        <span style="font-size:14px;font-weight:500">Add-ons <span style="font-size:12px;color:var(--color-text-secondary)">for ${pizzaName}</span></span>
+      </div>
+      <button class="inline-skip" onclick="initMenu()">Done ✓</button>
+    </div>
+    ${addons.map(addon=>`
+      <div class="menu-item" onclick="addToCartById(${addon.id})" style="cursor:pointer">
+        <div class="mname">${getBaseName(addon.name)}</div>
+        <div class="mprice">₹${addon.price} <span style="font-size:9px;color:var(--color-text-tertiary)">${sizeLabel}</span></div>
+        <span class="mbadge ${addon.type}">${addon.type==='veg'?'Veg':'Non-veg'}</span>
+      </div>`).join('')}`;
+}
+
+function addToCartById(id){
+  const item=menuData.find(m=>m.id===id);
+  if(item)addToCart(item);
+}
+
+function onItemWithAddon(item, addonIds){
+  addToCart(item);
+  const addons=addonIds.map(id=>menuData.find(m=>m.id===id)).filter(Boolean).filter(m=>m.stock!=='out');
+  if(!addons.length){return;}
+  const grid=document.getElementById('menu-grid');
+  grid.innerHTML=`
+    <div style="grid-column:1/-1;padding:14px 16px;border-bottom:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <button class="inline-back" onclick="initMenu()">← Menu</button>
+        <span style="font-size:14px;font-weight:500">Add-ons <span style="font-size:12px;color:var(--color-text-secondary)">for ${item.name}</span></span>
+      </div>
+      <button class="inline-skip" onclick="initMenu()">Done ✓</button>
+    </div>
+    ${addons.map(addon=>`
+      <div class="menu-item" onclick="addToCartById(${addon.id})" style="cursor:pointer">
+        <div class="mname">${addon.name}</div>
+        <div class="mprice">₹${addon.price}</div>
+        <span class="mbadge ${addon.type}">${addon.type==='veg'?'Veg':'Non-veg'}</span>
+      </div>`).join('')}`;
+}
+
+function addToCart(item){
+  const ex=cart.find(c=>c.id===item.id);
+  if(ex)ex.qty++;
+  else cart.push({...item,qty:1});
+  if(selectedTable&&orderType==='dine')saveData('pos_cart_t'+selectedTable,cart);
+  renderCart();
+}
+
+function changeQty(id,delta){
+  const idx=cart.findIndex(c=>c.id===id);
+  if(idx===-1)return;
+  cart[idx].qty+=delta;
+  if(cart[idx].qty<=0)cart.splice(idx,1);
+  if(selectedTable&&orderType==='dine')saveData('pos_cart_t'+selectedTable,cart);
+  renderCart();
+}
+
+function renderCart(){
+  const el=document.getElementById('cart-items');
+  if(cart.length===0){
+    el.innerHTML='<div class="cart-empty"><i class="ti ti-shopping-cart" style="font-size:28px;display:block;margin-bottom:8px" aria-hidden="true"></i>Add items to order</div>';
+    document.getElementById('cart-summary').innerHTML='';
+    return;
+  }
+  el.innerHTML=cart.map(c=>`
+    <div class="cart-row">
+      <div class="cart-name">${c.name}</div>
+      <div class="cart-qty">
+        <button class="qty-btn" onclick="changeQty(${c.id},-1)">−</button>
+        <span style="font-size:13px;font-weight:500;min-width:16px;text-align:center">${c.qty}</span>
+        <button class="qty-btn" onclick="changeQty(${c.id},1)">+</button>
+      </div>
+      <div class="cart-price">₹${c.price*c.qty}</div>
+    </div>`).join('');
+  const sub=cart.reduce((a,c)=>a+c.price*c.qty,0);
+  const gst=Math.round(sub*0.05);
+  const total=sub+gst;
+  document.getElementById('cart-summary').innerHTML=`
+    <div class="sum-row"><span>Subtotal</span><span>₹${sub}</span></div>
+    <div class="sum-row"><span>${settings.taxLabel||'GST'} (${settings.taxRate||5}%)</span><span>₹${gst}</span></div>
+    <div class="sum-row total"><span>Total</span><span>₹${total}</span></div>`;
+}
+
+function clearCart(){
+  cart=[];
+  if(selectedTable&&orderType==='dine')saveData('pos_cart_t'+selectedTable,[]);
+  renderCart();
+}
+
+function placeOrder(){
+  if(cart.length===0){showToast('Add items first','error');return;}
+  if(orderType==='dine'&&!selectedTable){showToast('Select a table first','error');return;}
+  // Show customer capture if DB is configured
+  if(settings.customerDbUrl){
+    document.getElementById('cust-phone').value='';
+    document.getElementById('cust-name').value='';
+    document.getElementById('cust-returning').style.display='none';
+    document.getElementById('customer-modal').classList.add('open');
+    setTimeout(()=>document.getElementById('cust-phone').focus(),100);
+  } else {
+    finalisePlaceOrder(null,null);
+  }
+}
+
+let _lookupTimer=null;
+function lookupCustomer(phone){
+  clearTimeout(_lookupTimer);
+  if(phone.length<10)return;
+  _lookupTimer=setTimeout(async()=>{
+    const url=settings.customerDbUrl;
+    if(!url)return;
+    try{
+      const r=await fetch(url+'?phone='+encodeURIComponent(phone));
+      const d=await r.json();
+      if(d.found){
+        document.getElementById('cust-name').value=d.name||'';
+        const badge=document.getElementById('cust-returning');
+        badge.textContent='👋 Returning · '+d.visits+' visits · ₹'+d.totalSpend+' spent';
+        badge.style.display='inline-block';
+      }
+    }catch(e){}
+  },600);
+}
+
+function skipCustomer(){
+  document.getElementById('customer-modal').classList.remove('open');
+  finalisePlaceOrder(null,null);
+}
+
+function saveCustomerAndBill(){
+  const phone=document.getElementById('cust-phone').value.trim();
+  const name=document.getElementById('cust-name').value.trim();
+  document.getElementById('customer-modal').classList.remove('open');
+  finalisePlaceOrder(name||null, phone||null);
+}
+
+function saveCdbUrl(){
+  settings.customerDbUrl=document.getElementById('cfg-cdb-url').value.trim();
+  saveData(STORE_KEYS.settings,settings);
+  showToast('Customer DB URL saved','success');
+}
+
+async function testCdbConnection(){
+  const url=(settings.customerDbUrl||'').trim();
+  if(!url){showToast('No URL saved','error');return;}
+  try{
+    const r=await fetch(url+'?phone=test');
+    if(r.ok){showToast('Connected to Customer DB ✓','success');}
+    else showToast('Connection failed: '+r.status,'error');
+  }catch(e){showToast('Connection error: '+e.message,'error');}
+}
+
+async function pushCustomerToSheet(name,phone,order){
+  const url=(settings.customerDbUrl||'').trim();
+  if(!url||(!name&&!phone))return;
+  const d=new Date(order.time);
+  const payload={
+    date:d.toLocaleDateString('en-IN'),
+    time:d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}),
+    orderId:order.id,
+    name:name||'Guest',
+    phone:phone||'',
+    type:order.type==='dine'?'Table '+order.table:order.type==='take'?'Takeaway':'Zomato',
+    total:order.total,
+    payment:order.payment.toUpperCase(),
+    items:order.items.map(i=>i.qty+'x '+i.name).join(', ')
+  };
+  try{
+    await fetch(url,{method:'POST',body:JSON.stringify(payload),headers:{'Content-Type':'application/json'}});
+  }catch(e){console.warn('Customer DB push failed:',e.message);}
+}
+
+function finalisePlaceOrder(custName, custPhone){
+  orderCounter++;
+  localStorage.setItem('pos_order_counter',orderCounter);
+  const sub=cart.reduce((a,c)=>a+c.price*c.qty,0);
+  const taxRate=parseFloat(settings.taxRate||5);
+  const gst=Math.round(sub*taxRate/100);
+  const total=sub+gst;
+  const now=new Date();
+  const order={id:orderCounter,time:now.toISOString(),type:orderType,table:selectedTable,items:[...cart],sub,gst,total,payment:paymentMode};
+  orderHistory.unshift(order);
+  saveData(STORE_KEYS.orders,orderHistory);
+  if(orderType==='dine'&&selectedTable){
+    tableStates[selectedTable]='occupied';
+    saveData(STORE_KEYS.tables,tableStates);
+    const tEl=document.getElementById('tbl-'+selectedTable);
+    if(tEl){tEl.className='tbl occupied selected';tEl.querySelector('.tstat').textContent='Occupied';}
+  }
+  if(custName||custPhone)pushCustomerToSheet(custName,custPhone,order);
+  currentReceiptData=order;
+  showReceipt(order,now);
+}
+
+function showReceipt(order,now){
+  const nowDate=now||new Date(order.time);
+  const label=order.type==='dine'?'Table '+order.table:order.type==='take'?'Takeaway':'Zomato';
+  document.getElementById('r-shop-name').textContent=settings.shopName||'My Restaurant';
+  document.getElementById('r-meta').textContent=`Order #${order.id} | ${label} | ${nowDate.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}`;
+  document.getElementById('r-items').innerHTML=order.items.map(c=>`<div class="r-row"><span>${c.name} x${c.qty}</span><span>₹${c.price*c.qty}</span></div>`).join('');
+  document.getElementById('r-totals').innerHTML=`
+    <div class="r-row"><span>Subtotal</span><span>₹${order.sub}</span></div>
+    <div class="r-row"><span>${settings.taxLabel||'GST'} (${settings.taxRate||5}%)</span><span>₹${order.gst}</span></div>
+    <div class="r-row"><strong>Total</strong><strong>₹${order.total}</strong></div>
+    <div class="r-row" style="font-size:12px;color:var(--color-text-secondary);margin-top:4px"><span>Payment</span><span>${order.payment.toUpperCase()}</span></div>`;
+  document.getElementById('receipt-modal').classList.add('open');
+}
+
+function closeReceipt(){
+  document.getElementById('receipt-modal').classList.remove('open');
+  if(currentReceiptData&&orderType==='dine'&&selectedTable){
+    const tbl=selectedTable;
+    delete tableStates[selectedTable];
+    saveData(STORE_KEYS.tables,tableStates);
+    const tEl=document.getElementById('tbl-'+selectedTable);
+    if(tEl){tEl.className='tbl';tEl.querySelector('.tstat').textContent='Free';}
+    saveData('pos_cart_t'+selectedTable,[]);
+    clearKOTState(tbl);
+    selectedTable=null;
+    document.getElementById('table-status-label').textContent='Select a table';
+    document.getElementById('free-table-btn').style.display='none';
+  }
+  if(currentReceiptData){cart=[];renderCart();updateOrderLabel();}
+  currentReceiptData=null;
+}
+
+async function printOnXP80(){
+  if(!currentReceiptData){showToast('No receipt data','error');return;}
+  if(printerConnected&&printerDevice){
+    await sendESCPOSViaBrowser(currentReceiptData);
+  } else if(localServerConnected){
+    await sendToLocalServer(currentReceiptData);
+  } else {
+    showToast('Printer not connected — check Printer tab','error');
+    return;
+  }
+  closeReceipt();
+}
+
+function buildKOTBytes(order){
+  const enc=new TextEncoder();
+  const bytes=[];
+  const ESC=0x1B,GS=0x1D;
+  const add=(arr)=>{arr.forEach(b=>bytes.push(b));};
+  const addStr=(s)=>{enc.encode(s).forEach(x=>bytes.push(x));};
+  const w=48;
+  const dash='-'.repeat(w);
+  // Center align
+  add([ESC,0x61,0x01]);
+  // Double height+width for header
+  add([ESC,0x21,0x30]);
+  addStr('KOT\n');
+  add([ESC,0x21,0x00]);
+  addStr('FFC & Pizza\n');
+  add([ESC,0x61,0x00]);
+  addStr(dash+'\n');
+  const label=order.type==='dine'?'Table '+order.table:order.type==='take'?'Takeaway':'Zomato';
+  const time=new Date(order.time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+  addStr('Order #: '+order.id+'\n');
+  addStr('Type   : '+label+'\n');
+  addStr('Time   : '+time+'\n');
+  addStr(dash+'\n');
+  // Items in large bold text
+  add([ESC,0x21,0x08]); // bold
+  order.items.forEach(item=>{
+    addStr(item.qty+'x  '+item.name.substring(0,w-6)+'\n');
+  });
+  add([ESC,0x21,0x00]);
+  addStr(dash+'\n');
+  add([ESC,0x61,0x01]);
+  addStr('** '+order.items.reduce((a,c)=>a+c.qty,0)+' item(s) **\n');
+  addStr('\n\n\n\n\n\n');
+  if(parseInt(settings.cut)===1)add([GS,0x56,0x00]);
+  return new Uint8Array(bytes);
+}
+
+async function printKOT(order, onSuccess){
+  if(!order){showToast('No order data','error');return;}
+  const data=buildKOTBytes(order);
+  try{
+    if(localServerConnected){
+      const r=await fetch('http://localhost:6789/print',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:data});
+      if(r.ok){showToast('KOT printed!','success');if(onSuccess)onSuccess();}
+      else showToast('KOT print failed','error');
+    } else if(printerConnected&&printerDevice){
+      await sendRawBytes(data);
+      showToast('KOT printed!','success');
+      if(onSuccess)onSuccess();
+    } else {
+      showToast('Printer not connected','error');
+    }
+  }catch(e){showToast('KOT error: '+e.message,'error');}
+}
+
+function getKOTKey(tableId){return 'pos_kot_t'+(tableId||'take');}
+
+function getKOTDiff(cart, tableId){
+  const prev=loadData(getKOTKey(tableId),[]);
+  const newItems=[];
+  cart.forEach(cartItem=>{
+    const prevItem=prev.find(k=>k.id===cartItem.id);
+    const prevQty=prevItem?prevItem.qty:0;
+    const newQty=cartItem.qty-prevQty;
+    if(newQty>0)newItems.push({...cartItem,qty:newQty});
+  });
+  return newItems;
+}
+
+function saveKOTState(cart, tableId){
+  saveData(getKOTKey(tableId), cart.map(i=>({id:i.id,qty:i.qty})));
+}
+
+function clearKOTState(tableId){
+  localStorage.removeItem(getKOTKey(tableId));
+}
+
+function markTableOccupied(tableId){
+  if(!tableId)return;
+  tableStates[tableId]='occupied';
+  saveData(STORE_KEYS.tables,tableStates);
+  const tEl=document.getElementById('tbl-'+tableId);
+  if(tEl){
+    tEl.className='tbl occupied'+(selectedTable===tableId?' selected':'');
+    tEl.querySelector('.tstat').textContent='Occupied';
+  }
+}
+
+function printKOTOnly(){
+  if(cart.length===0){showToast('Add items first','error');return;}
+  if(orderType==='dine'&&!selectedTable){showToast('Select a table first','error');return;}
+  const tableId=orderType==='dine'?selectedTable:null;
+  const newItems=orderType==='dine'?getKOTDiff(cart,tableId):[...cart];
+  if(newItems.length===0){showToast('No new items to send to kitchen','error');return;}
+  const now=new Date();
+  const kotOrder={id:orderCounter,time:now.toISOString(),type:orderType,table:selectedTable,items:newItems,payment:paymentMode};
+  printKOT(kotOrder,()=>{
+    saveKOTState(cart,tableId);
+    if(orderType==='dine'&&selectedTable)markTableOccupied(selectedTable);
+  });
+}
+
+function buildESCPOSBytes(order){
+  const enc=new TextEncoder();
+  const lines=[];
+  const ESC=0x1B,GS=0x1D,LF=0x0A,CR=0x0D;
+  const shop=settings.shopName||'FFC & Pizza';
+  const addr=settings.shopAddress||'';
+  const addr2=settings.shopAddress2||'';
+  const phone=settings.shopPhone||'';
+  const gstNo=settings.shopGST||'';
+  const footer=settings.shopFooter||'Thank You! Visit Again.';
+  const taxLabel=settings.taxLabel||'GST';
+  const taxRate=parseFloat(settings.taxRate||'5');
+  const label=order.type==='dine'?'Table '+order.table:order.type==='take'?'Takeaway':'Zomato';
+  const w=settings.paper==='80'?48:32;
+  const dash='-'.repeat(w);
+  const pad=(l,r,width)=>{const space=width-l.length-r.length;return space>0?l+' '.repeat(space)+r:l.substring(0,width-r.length-1)+' '+r;};
+  const center=(t,width)=>{const pad=Math.max(0,Math.floor((width-t.length)/2));return ' '.repeat(pad)+t;};
+  const bytes=[];
+  const add=(arr)=>{arr.forEach(b=>bytes.push(b));};
+  const addStr=(s)=>{const b=enc.encode(s);b.forEach(x=>bytes.push(x));};
+  if(parseInt(settings.density)>0)add([ESC,0x7B,parseInt(settings.density)]);
+  add([0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00]);
+  add([ESC,0x61,0x01]);
+  add([ESC,0x21,0x30]);
+  addStr(shop+'\n');
+  add([ESC,0x21,0x00]);
+  if(addr)addStr(addr+'\n');
+  if(addr2)addStr(addr2+'\n');
+  if(phone)addStr('Tel: '+phone+'\n');
+  if(gstNo)addStr('GSTIN: '+gstNo+'\n');
+  add([ESC,0x61,0x00]);
+  addStr(dash+'\n');
+  addStr(center('ORDER RECEIPT',w)+'\n');
+  addStr(dash+'\n');
+  addStr('Order #: '+order.id+'\n');
+  addStr('Type   : '+label+'\n');
+  addStr('Date   : '+new Date(order.time).toLocaleString('en-IN')+'\n');
+  addStr('Payment: '+order.payment.toUpperCase()+'\n');
+  addStr(dash+'\n');
+  addStr(pad('Item','Amount',w)+'\n');
+  addStr(dash+'\n');
+  order.items.forEach(item=>{
+    addStr(pad(item.name.substring(0,w-10)+' x'+item.qty,'Rs.'+item.price*item.qty,w)+'\n');
+  });
+  addStr(dash+'\n');
+  addStr(pad('Subtotal','Rs.'+order.sub,w)+'\n');
+  addStr(pad(taxLabel+' ('+taxRate+'%)','Rs.'+order.gst,w)+'\n');
+  addStr(dash+'\n');
+  add([ESC,0x21,0x10]);
+  addStr(pad('TOTAL','Rs.'+order.total,w)+'\n');
+  add([ESC,0x21,0x00]);
+  addStr(dash+'\n');
+  add([ESC,0x61,0x01]);
+  addStr(footer+'\n');
+  addStr('\n\n\n\n\n\n');
+  if(parseInt(settings.cut)===1)add([GS,0x56,0x00]);
+  if(parseInt(settings.drawer)===1)add([ESC,0x70,0x00,0x19,0xFA]);
+  return new Uint8Array(bytes);
+}
+
+async function connectWebUSB(){
+  if(!navigator.usb){showToast('Web USB not supported in this browser','error');return;}
+  try{
+    printerDevice=await navigator.usb.requestDevice({filters:[{vendorId:0x0483},{vendorId:0x6868},{vendorId:0x1FC9},{vendorId:0x4B43}]});
+    await printerDevice.open();
+    if(printerDevice.configuration===null)await printerDevice.selectConfiguration(1);
+    await printerDevice.claimInterface(0);
+    printerConnected=true;
+    updatePrinterStatus(true,'Xprinter XP-B6 via USB');
+    showToast('XP-80 connected!','success');
+  }catch(e){
+    printerConnected=false;
+    if(e.name!=='NotFoundError')showToast('Could not connect: '+e.message,'error');
+  }
+}
+
+async function sendESCPOSViaBrowser(order){
+  if(!printerDevice||!printerConnected){showToast('Printer not connected','error');return;}
+  try{
+    const data=buildESCPOSBytes(order);
+    const iface=printerDevice.configuration.interfaces[0];
+    const ep=iface.alternates[0].endpoints.find(e=>e.direction==='out');
+    if(!ep){showToast('Could not find printer endpoint','error');return;}
+    await printerDevice.transferOut(ep.endpointNumber,data);
+    showToast('Printed on XP-B6!','success');
+  }catch(e){showToast('Print failed: '+e.message,'error');}
+}
+
+async function connectLocalServer(){
+  try{
+    const r=await fetch('http://localhost:6789/ping',{method:'GET',signal:AbortSignal.timeout(2000)});
+    if(r.ok){localServerConnected=true;updatePrinterStatus(true,'Xprinter XP-B6 via server');showToast('Print server connected!','success');}
+  }catch(e){showToast('Local print server not running. Start with: node print-server.js','error');}
+}
+
+async function sendToLocalServer(order){
+  try{
+    const data=buildESCPOSBytes(order);
+    const r=await fetch('http://localhost:6789/print',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:data,signal:AbortSignal.timeout(5000)});
+    if(r.ok)showToast('Printed on XP-B6!','success');
+    else showToast('Print server error','error');
+  }catch(e){showToast('Could not reach print server','error');}
+}
+
+async function testPrint(){
+  const testOrder={id:'TEST',time:new Date().toISOString(),type:'dine',table:1,items:[{name:'Test Item',qty:1,price:99}],sub:99,gst:5,total:104,payment:'cash'};
+  if(printerConnected&&printerDevice){await sendESCPOSViaBrowser(testOrder);}
+  else if(localServerConnected){await sendToLocalServer(testOrder);}
+  else{showToast('Connect printer first in Printer tab','error');}
+}
+
+function disconnectPrinter(){
+  if(printerDevice){try{printerDevice.close();}catch(e){}}
+  printerDevice=null;printerConnected=false;localServerConnected=false;
+  updatePrinterStatus(false,'Xprinter XP-B6 not connected');
+  showToast('Printer disconnected','info');
+}
+
+function updatePrinterStatus(connected,label){
+  document.getElementById('printer-dot').className='status-dot'+(connected?' connected':'');
+  document.getElementById('printer-label').textContent=label;
+  const btn=document.getElementById('quick-connect-btn');
+  if(btn)btn.style.display=connected?'none':'inline-flex';
+}
+
+function renderMenuTable(){
+  const search=document.getElementById('menu-search').value.toLowerCase();
+  const cat=document.getElementById('menu-filter-cat').value;
+  const filtered=menuData.filter(m=>(cat==='all'||m.cat===cat)&&m.name.toLowerCase().includes(search));
+  const stockLabel={in:'<span class="stock-badge in-stock">In stock</span>',low:'<span class="stock-badge low-stock">Low stock</span>',out:'<span class="stock-badge out-stock">Out of stock</span>'};
+  document.getElementById('menu-tbody').innerHTML=filtered.map(m=>`
+    <tr>
+      <td>${m.name}</td><td>${m.cat}</td>
+      <td><span class="mbadge ${m.type}" style="font-size:11px">${m.type==='veg'?'Veg':'Non-veg'}</span></td>
+      <td>₹${m.price}</td><td>${stockLabel[m.stock]}</td>
+      <td><button class="edit-btn" onclick="openEditItem(${m.id})">Edit</button><button class="del-btn" onclick="deleteItem(${m.id})">Del</button></td>
+    </tr>`).join('');
+  const sel=document.getElementById('menu-filter-cat');
+  const cats=getCategories();
+  if(sel.options.length<=1){cats.filter(c=>c!=='All').forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;sel.appendChild(o);});}
+}
+
+function openAddItem(){editingId=null;document.getElementById('modal-title').textContent='Add menu item';['mi-name','mi-price'].forEach(id=>document.getElementById(id).value='');document.getElementById('item-modal').classList.add('open');}
+
+function openEditItem(id){
+  editingId=id;
+  const item=menuData.find(m=>m.id===id);
+  document.getElementById('modal-title').textContent='Edit item';
+  document.getElementById('mi-name').value=item.name;
+  document.getElementById('mi-cat').value=item.cat;
+  document.getElementById('mi-type').value=item.type;
+  document.getElementById('mi-price').value=item.price;
+  document.getElementById('mi-stock').value=item.stock;
+  document.getElementById('item-modal').classList.add('open');
+}
+
+function saveItem(){
+  const name=document.getElementById('mi-name').value.trim();
+  const price=parseInt(document.getElementById('mi-price').value);
+  if(!name||!price){showToast('Fill all fields','error');return;}
+  const item={id:editingId||Date.now(),name,cat:document.getElementById('mi-cat').value,type:document.getElementById('mi-type').value,price,stock:document.getElementById('mi-stock').value};
+  if(editingId){const idx=menuData.findIndex(m=>m.id===editingId);menuData[idx]=item;}
+  else menuData.push(item);
+  saveData(STORE_KEYS.menu,menuData);
+  closeModal();renderMenuTable();initMenu();
+  showToast(editingId?'Item updated':'Item added','success');
+}
+
+function deleteItem(id){
+  menuData.splice(menuData.findIndex(m=>m.id===id),1);
+  saveData(STORE_KEYS.menu,menuData);
+  renderMenuTable();initMenu();
+  showToast('Item deleted','info');
+}
+
+function closeModal(){document.getElementById('item-modal').classList.remove('open');}
+
+function renderHistory(){
+  if(orderHistory.length===0){document.getElementById('history-tbody').innerHTML='<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--color-text-secondary)">No orders yet</td></tr>';return;}
+  const typeLabel={dine:'Dine-in',take:'Takeaway',zom:'Zomato'};
+  document.getElementById('history-tbody').innerHTML=orderHistory.slice(0,50).map(o=>`
+    <tr>
+      <td>#${o.id}</td>
+      <td>${new Date(o.time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}</td>
+      <td>${typeLabel[o.type]||o.type}${o.table?' T'+o.table:''}</td>
+      <td>${o.items.length} items</td>
+      <td>₹${o.total}</td>
+      <td>${o.payment.toUpperCase()}</td>
+      <td><button class="reprint-btn" onclick="reprintOrder(${o.id})"><i class="ti ti-printer" aria-hidden="true"></i> Reprint</button></td>
+    </tr>`).join('');
+}
+
+function reprintOrder(id){
+  const order=orderHistory.find(o=>o.id===id);
+  if(!order)return;
+  currentReceiptData=order;
+  showReceipt(order,new Date(order.time));
+}
+
+function clearHistory(){
+  orderHistory=[];
+  saveData(STORE_KEYS.orders,[]);
+  renderHistory();
+  showToast('History cleared','info');
+}
+
+function renderInventory(){
+  const cards=[
+    {label:'Total items',val:inventory.length,sub:'in inventory'},
+    {label:'Low stock',val:inventory.filter(i=>i.qty<i.min*1.5&&i.qty>=i.min).length,sub:'need reorder'},
+    {label:'Out of stock',val:inventory.filter(i=>i.qty<i.min).length,sub:'urgent reorder'},
+    {label:'Healthy stock',val:inventory.filter(i=>i.qty>=i.min*1.5).length,sub:'well stocked'},
+  ];
+  document.getElementById('inv-cards').innerHTML=cards.map(c=>`<div class="inv-card"><div class="ic-label">${c.label}</div><div class="ic-val">${c.val}</div><div class="ic-sub">${c.sub}</div></div>`).join('');
+  document.getElementById('inv-tbody').innerHTML=inventory.map(i=>{
+    const pct=Math.min(100,Math.round(i.qty/Math.max(i.min*2,1)*100));
+    const status=i.qty<i.min?'out-stock':i.qty<i.min*1.5?'low-stock':'in-stock';
+    const color=i.qty<i.min?'#E24B4A':i.qty<i.min*1.5?'#EF9F27':'#639922';
+    return `<tr><td>${i.name}</td><td>${i.unit}</td><td>${i.qty}</td><td>${i.min}</td>
+      <td><span class="stock-badge ${status}">${i.qty<i.min?'Low':i.qty<i.min*1.5?'Reorder':'OK'}</span><div class="prog-bar"><div class="prog-fill" style="width:${pct}%;background:${color}"></div></div></td></tr>`;
+  }).join('');
+}
+
+function renderReport(){
+  const today=orderHistory.filter(o=>new Date(o.time).toDateString()===new Date().toDateString());
+  const rev=today.reduce((a,o)=>a+o.total,0);
+  const avg=today.length>0?Math.round(rev/today.length):0;
+  const zom=today.filter(o=>o.type==='zom').length;
+  const cards=[
+    {label:"Today's revenue",val:'₹'+rev,delta:today.length+' orders',up:true},
+    {label:'Orders today',val:today.length,delta:'All channels',up:true},
+    {label:'Avg order value',val:'₹'+avg,delta:'Per order',up:true},
+    {label:'Zomato orders',val:zom,delta:'Delivery orders',up:true},
+  ];
+  document.getElementById('report-cards').innerHTML=cards.map(c=>`<div class="rep-card"><div class="rc-label">${c.label}</div><div class="rc-val">${c.val}</div><div class="rc-delta up">${c.delta}</div></div>`).join('');
+  const hours=['10am','12pm','2pm','4pm','6pm','8pm','10pm'];
+  const vals=[320,980,640,420,1100,1480,1300];
+  const max=Math.max(...vals);
+  document.getElementById('bar-chart').innerHTML=hours.map((h,i)=>`
+    <div class="bar-wrap"><div class="bar-val">₹${vals[i]}</div><div class="bar" style="height:${Math.round(vals[i]/max*80)}px"></div><div class="bar-label">${h}</div></div>`).join('');
+  const topItems=[{name:'Chicken Burger',qty:42,pct:100},{name:'Masala Fries',qty:38,pct:90},{name:'Chicken Pizza',qty:29,pct:69},{name:'Cold Coffee',qty:24,pct:57},{name:'Classic Burger',qty:21,pct:50}];
+  document.getElementById('top-items').innerHTML=topItems.map(i=>`<div class="top-item-row"><div class="top-item-name">${i.name}</div><div style="flex:1"><div class="top-item-bar" style="width:${i.pct}%"></div></div><div class="top-item-qty">${i.qty} sold</div></div>`).join('');
+  const channels=[{name:'Dine-in',val:'₹4,100',pct:50,color:'#85B7EB'},{name:'Takeaway',val:'₹2,460',pct:30,color:'#5DCAA5'},{name:'Zomato',val:'₹1,680',pct:20,color:'#F0997B'}];
+  document.getElementById('channel-list').innerHTML=channels.map(c=>`<div class="channel-row"><div class="ch-dot" style="background:${c.color}"></div><div class="ch-name">${c.name}</div><div class="ch-val">${c.val}</div><div class="ch-pct">${c.pct}%</div></div>`).join('');
+  const payments=[{name:'Cash',val:'₹3,296',pct:40,color:'#9FE1CB'},{name:'UPI',val:'₹3,708',pct:45,color:'#AFA9EC'},{name:'Card',val:'₹1,236',pct:15,color:'#FAC775'}];
+  document.getElementById('payment-list').innerHTML=payments.map(p=>`<div class="channel-row"><div class="ch-dot" style="background:${p.color}"></div><div class="ch-name">${p.name}</div><div class="ch-val">${p.val}</div><div class="ch-pct">${p.pct}%</div></div>`).join('');
+}
+
+function showToast(msg,type='info'){
+  const t=document.getElementById('toast');
+  t.textContent=msg;
+  t.className='toast '+type;
+  t.style.display='block';
+  setTimeout(()=>t.style.display='none',2800);
+}
+
+function updateClock(){document.querySelector&&document.querySelector('.top-bar .brand');}
+
+function saveSheetUrl(){
+  settings.sheetsUrl=document.getElementById('cfg-sheets-url').value.trim();
+  saveData(STORE_KEYS.settings,settings);
+  showToast('Sheets URL saved. Syncing now...','success');
+  syncMenuFromSheets(true);
+}
+
+function parseSheetCSV(csv){
+  const lines=csv.trim().split('\n');
+  const sizeMap={Small:'(S)',Medium:'(M)',Large:'(L)',Regular:''};
+  const catMap={'Add on Pizza':'Add-ons','Add on Burger':'Add-ons'};
+  const items=[];
+  for(let i=1;i<lines.length;i++){
+    const cols=lines[i].split(',').map(c=>c.replace(/^"|"$/g,'').trim());
+    if(cols.length<6||!cols[1])continue;
+    const rawName=cols[1];
+    const rawCat=cols[2];
+    const rawType=cols[3];
+    const rawSize=cols[4];
+    const rawPrice=cols[5];
+    const sizeSuffix=sizeMap[rawSize]!==undefined?sizeMap[rawSize]:'';
+    const name=sizeSuffix?rawName+' '+sizeSuffix:rawName;
+    const cat=catMap[rawCat]||rawCat;
+    const type=rawType.toLowerCase().includes('non')?'nonveg':'veg';
+    const price=parseInt(rawPrice)||0;
+    if(!price)continue;
+    items.push({id:i,name,cat,type,price,stock:'in'});
+  }
+  return items;
+}
+
+async function syncMenuFromSheets(manual=false){
+  const url=(settings.sheetsUrl||'').trim();
+  if(!url){if(manual)showToast('No Sheets URL saved in settings','error');return;}
+  const badge=document.getElementById('sheets-sync-badge');
+  if(badge){badge.style.display='';badge.textContent='⏳ Syncing...';}
+  try{
+    const res=await fetch(url,{cache:'no-store'});
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    const csv=await res.text();
+    const items=parseSheetCSV(csv);
+    if(!items.length)throw new Error('No items parsed — check sheet format');
+    menuData=items;
+    saveData(STORE_KEYS.menu,menuData);
+    initMenu();
+    renderMenuTable&&renderMenuTable();
+    if(badge){badge.textContent='✓ Synced '+items.length+' items';badge.style.background='var(--color-background-success)';badge.style.color='var(--color-text-success)';}
+    if(manual)showToast('Menu synced — '+items.length+' items loaded','success');
+    console.log('[SHEETS] Synced',items.length,'items from Google Sheets');
+  }catch(e){
+    console.warn('[SHEETS] Sync failed:',e.message);
+    if(badge){badge.textContent='✗ Sync failed';badge.style.background='var(--color-background-danger)';badge.style.color='var(--color-text-danger)';}
+    if(manual)showToast('Sync failed: '+e.message,'error');
+    else showToast('Sheets sync failed — using saved menu','error');
+  }
+}
+
+initTables();
+initMenu();
+applySettings();
+syncMenuFromSheets(false);
+setInterval(()=>{},1000);
+</script>
