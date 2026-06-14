@@ -457,6 +457,23 @@ body{font-family:var(--font-sans);font-size:14px;color:var(--color-text-primary)
   </div>
 </div>
 
+<!-- AMENDMENT MODAL -->
+<div class="modal-overlay" id="amend-modal">
+  <div class="modal" style="width:400px">
+    <h3 style="font-size:15px;margin-bottom:4px;color:#fbbf24">✏ Amend Record</h3>
+    <div id="amend-original" style="font-size:12px;color:var(--color-text-secondary);margin-bottom:14px;padding:8px 10px;background:var(--color-background-secondary);border-radius:6px;border:0.5px solid var(--color-border-tertiary)"></div>
+    <p style="font-size:11px;color:var(--color-text-tertiary);margin-bottom:14px">Original block is permanently preserved. A correction node will be appended to the chain.</p>
+    <label style="font-size:12px;color:var(--color-text-secondary);display:block;margin-bottom:4px">Corrected total (₹) *</label>
+    <input type="number" id="amend-total" min="0" placeholder="Enter corrected total" style="width:100%;padding:8px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-secondary);color:var(--color-text-primary);font-size:14px;margin-bottom:12px"/>
+    <label style="font-size:12px;color:var(--color-text-secondary);display:block;margin-bottom:4px">Reason for amendment *</label>
+    <input type="text" id="amend-reason" placeholder="e.g. Data entry error, Zomato order included..." style="width:100%;padding:8px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-secondary);color:var(--color-text-primary);font-size:14px;margin-bottom:16px"/>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <button onclick="closeAmendModal()" style="padding:10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:transparent;color:var(--color-text-secondary);cursor:pointer;font-size:13px">Cancel</button>
+      <button onclick="submitAmendment()" style="padding:10px;border-radius:var(--border-radius-md);background:#3a2a00;color:#fbbf24;border:0.5px solid #fbbf24;cursor:pointer;font-size:13px;font-weight:500">⛓ Seal Amendment</button>
+    </div>
+  </div>
+</div>
+
 <!-- RECEIPT MODAL -->
 <div class="modal-overlay" id="receipt-modal">
   <div class="receipt-modal">
@@ -1600,9 +1617,16 @@ async function renderLedger(){
   const sales=bcChain.filter(b=>b.type==='SALE');
   const historical=bcChain.filter(b=>b.type==='HISTORICAL');
   const amendments=bcChain.filter(b=>b.type==='AMENDMENT');
-  const gross=sales.reduce((s,b)=>s+(b.data.total||0),0);
-  const histGross=historical.reduce((s,b)=>s+(b.data.total||0),0);
   const amendedSet=new Set(amendments.map(b=>b.data.amendedBlockIndex));
+  // Build map of corrected totals from amendments
+  const amendedTotals={};
+  amendments.forEach(b=>{amendedTotals[b.data.amendedBlockIndex]=b.data.total||0;});
+  const gross=sales.reduce((s,b)=>s+(b.data.total||0),0);
+  // Adjusted historical revenue: use corrected total if amended, original otherwise
+  const histGross=historical.reduce((s,b)=>{
+    const corrected=amendedTotals[b.index];
+    return s+(corrected!==undefined?corrected:b.data.total||0);
+  },0);
 
   // Status badge
   const badge=document.getElementById('chain-status-badge');
@@ -1630,23 +1654,36 @@ async function renderLedger(){
   const container=document.getElementById('ledger-blocks');
   if(!container)return;
   container.innerHTML=[...bcChain].reverse().map(block=>{
-    const isAmended=block.type==='SALE'&&amendedSet.has(block.index);
-    const borderColor=block.type==='AMENDMENT'?'#3a2a00':block.type==='GENESIS'?'#1a2a1a':block.type==='HISTORICAL'?'#1a1a3a':isAmended?'#222':'#1a3a1a';
-    const tagColor=block.type==='GENESIS'?'#3a4a3a':block.type==='AMENDMENT'?'#fbbf24':block.type==='HISTORICAL'?'#818cf8':isAmended?'#6b7280':'#4ade80';
-    const tagBg=block.type==='GENESIS'?'#1a2a1a':block.type==='AMENDMENT'?'#2a1f00':block.type==='HISTORICAL'?'#1a1a3a':isAmended?'#1a1a1a':'#0f2a0f';
-    const items=block.type==='SALE'?block.data.items||[]:block.type==='AMENDMENT'?block.data.orders?.[0]?.items||[]:[];
+    const isAmended=(block.type==='SALE'||block.type==='HISTORICAL')&&amendedSet.has(block.index);
+    const canAmend=block.type==='SALE'||block.type==='HISTORICAL';
+    const borderColor=block.type==='AMENDMENT'?'#3a2a00':block.type==='GENESIS'?'#1a2a1a':block.type==='HISTORICAL'?'#1a1a3a':isAmended?'#2a2a00':'#1a3a1a';
+    const tagColor=block.type==='GENESIS'?'#3a4a3a':block.type==='AMENDMENT'?'#fbbf24':block.type==='HISTORICAL'?'#818cf8':isAmended?'#fbbf24':'#4ade80';
+    const tagBg=block.type==='GENESIS'?'#1a2a1a':block.type==='AMENDMENT'?'#2a1f00':block.type==='HISTORICAL'?'#1a1a3a':isAmended?'#2a1f00':'#0f2a0f';
+    const items=block.type==='SALE'?block.data.items||[]:block.type==='HISTORICAL'?[]:block.type==='AMENDMENT'?block.data.items||[]:[];
+    const histDetails=block.type==='HISTORICAL'?`<div style="padding:0 14px 10px;display:flex;gap:12px;flex-wrap:wrap">
+      <span style="font-size:11px;padding:3px 8px;border-radius:4px;background:#0f2a0f;color:#4ade80">💰 Sale: ${bcFmt(block.data.total||0)}</span>
+      ${block.data.purchase>0?`<span style="font-size:11px;padding:3px 8px;border-radius:4px;background:#1a1a2e;color:#818cf8">🛒 Purchase: ${bcFmt(block.data.purchase)}</span>`:''}
+      ${block.data.rent>0?`<span style="font-size:11px;padding:3px 8px;border-radius:4px;background:#2a1a1a;color:#f87171">🏠 Rent: ${bcFmt(block.data.rent)}</span>`:''}
+      ${block.data.capInf>0?`<span style="font-size:11px;padding:3px 8px;border-radius:4px;background:#1a2a1a;color:#fbbf24">💼 Cap. Infusion: ${bcFmt(block.data.capInf)}</span>`:''}
+    </div>`:'';
+    const total=block.data.total||0;
     return `<div style="margin-bottom:8px;border-radius:8px;border:1px solid ${borderColor};background:#0a0f0a;overflow:hidden">
       <div style="display:flex;align-items:center;gap:10px;padding:11px 14px">
         <span style="font-size:10px;padding:2px 7px;border-radius:99px;font-weight:bold;letter-spacing:1px;background:${tagBg};color:${tagColor}">${block.type}</span>
         <span style="font-size:12px;color:var(--color-text-secondary)">Block #${block.index}</span>
-        ${block.type==='SALE'?`<span style="font-size:12px;color:var(--color-text-primary)">${block.data.date} · ${block.data.type}</span>`:''}
-        ${block.type==='SALE'?`<span style="margin-left:auto;color:#4ade80;font-weight:bold;font-size:13px;font-family:monospace">${bcFmt(block.data.total)}</span>`:''}
-        ${block.type==='AMENDMENT'?`<span style="font-size:12px;color:#fbbf24">Corrects Block #${block.data.amendedBlockIndex}</span>`:''}
-        <span style="font-size:10px;color:var(--color-text-tertiary);margin-left:${block.type==='SALE'?'0':'auto'}">${new Date(block.timestamp).toLocaleString('en-IN')}</span>
+        ${block.type==='SALE'?`<span style="font-size:12px;color:var(--color-text-primary)">${block.data.date} · ${block.data.type||''}</span>`:''}
+        ${block.type==='HISTORICAL'?`<span style="font-size:12px;color:#818cf8">${block.data.date} · ${block.data.day||''}</span>`:''}
+        ${(block.type==='SALE'||block.type==='HISTORICAL')?`<span style="margin-left:auto;color:${isAmended?'#fbbf24':'#4ade80'};font-weight:bold;font-size:13px;font-family:monospace">${bcFmt(total)}${isAmended?' ⚠amended':''}</span>`:''}
+        ${block.type==='AMENDMENT'?`<span style="font-size:12px;color:#fbbf24">Corrects Block #${block.data.amendedBlockIndex} · Reason: ${block.data.reason||''}</span><span style="margin-left:auto;color:#fbbf24;font-weight:bold;font-size:13px;font-family:monospace">${bcFmt(total)}</span>`:''}
+        ${block.type==='GENESIS'?`<span style="margin-left:auto"></span>`:''}
+        <span style="font-size:10px;color:var(--color-text-tertiary)">${new Date(block.timestamp).toLocaleString('en-IN')}</span>
+        ${canAmend&&!isAmended?`<button onclick="openAmendModal(${block.index})" style="padding:2px 8px;border-radius:4px;border:0.5px solid #fbbf24;background:transparent;color:#fbbf24;cursor:pointer;font-size:10px;white-space:nowrap">✏ Amend</button>`:''}
+        ${canAmend&&isAmended?`<span style="font-size:10px;color:#fbbf24;padding:2px 6px;border:0.5px solid #3a2a00;border-radius:4px">Amended</span>`:''}
       </div>
       ${items.length?`<div style="padding:0 14px 11px;display:flex;flex-wrap:wrap;gap:6px">
         ${items.map(i=>`<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:var(--color-background-secondary);color:var(--color-text-secondary)">${i.qty||1}× ${i.item||i.desc||''} · ${bcFmt(i.total||i.amt||0)}</span>`).join('')}
       </div>`:''}
+      ${histDetails}
       <div style="padding:4px 14px 8px;font-family:monospace;font-size:9px;color:var(--color-text-tertiary)">
         HASH: ${bcShort(block.hash)} · PREV: ${bcShort(block.previousHash)}
       </div>
@@ -1656,123 +1693,167 @@ async function renderLedger(){
 
 // ── Historical Sales Data (from Monthly Cashflow Sheet) ──────
 const HISTORICAL_SALES=[
-  {date:'06/02/2026',day:'Friday',sale:3821,purchase:0},
-  {date:'07/02/2026',day:'Saturday',sale:2490,purchase:0},
-  {date:'08/02/2026',day:'Sunday',sale:1487,purchase:2643},
-  {date:'09/02/2026',day:'Monday',sale:886,purchase:240},
-  {date:'11/02/2026',day:'Wednesday',sale:846,purchase:1054},
-  {date:'12/02/2026',day:'Thursday',sale:1185,purchase:0},
-  {date:'13/02/2026',day:'Friday',sale:868,purchase:292},
-  {date:'14/02/2026',day:'Saturday',sale:90,purchase:2438},
-  {date:'15/02/2026',day:'Sunday',sale:1629,purchase:2591},
-  {date:'16/02/2026',day:'Monday',sale:1164,purchase:0},
-  {date:'18/02/2026',day:'Wednesday',sale:1650,purchase:1529},
-  {date:'20/02/2026',day:'Friday',sale:1381,purchase:254},
-  {date:'21/02/2026',day:'Saturday',sale:429,purchase:1280},
-  {date:'22/02/2026',day:'Sunday',sale:1656,purchase:374},
-  {date:'23/02/2026',day:'Monday',sale:1899,purchase:1055},
-  {date:'24/02/2026',day:'Tuesday',sale:1076,purchase:692},
-  {date:'25/02/2026',day:'Wednesday',sale:1215,purchase:495},
-  {date:'26/02/2026',day:'Thursday',sale:178,purchase:540},
-  {date:'27/02/2026',day:'Friday',sale:2173,purchase:421},
-  {date:'28/02/2026',day:'Saturday',sale:1523,purchase:0},
-  {date:'01/03/2026',day:'Sunday',sale:1114,purchase:154},
-  {date:'07/03/2026',day:'Saturday',sale:1027,purchase:870},
-  {date:'08/03/2026',day:'Sunday',sale:677,purchase:290},
-  {date:'09/03/2026',day:'Monday',sale:1264,purchase:706},
-  {date:'10/03/2026',day:'Tuesday',sale:198,purchase:30390},
-  {date:'11/03/2026',day:'Wednesday',sale:407,purchase:970},
-  {date:'12/03/2026',day:'Thursday',sale:1036,purchase:175},
-  {date:'13/03/2026',day:'Friday',sale:1046,purchase:205},
-  {date:'14/03/2026',day:'Saturday',sale:936,purchase:250},
-  {date:'15/03/2026',day:'Sunday',sale:2310,purchase:361},
-  {date:'16/03/2026',day:'Monday',sale:2301,purchase:1393},
-  {date:'17/03/2026',day:'Tuesday',sale:666,purchase:700},
-  {date:'18/03/2026',day:'Wednesday',sale:2428,purchase:621},
-  {date:'19/03/2026',day:'Thursday',sale:20,purchase:988},
-  {date:'20/03/2026',day:'Friday',sale:2277,purchase:200},
-  {date:'21/03/2026',day:'Saturday',sale:279,purchase:2906},
-  {date:'22/03/2026',day:'Sunday',sale:1376,purchase:312},
-  {date:'23/03/2026',day:'Monday',sale:422,purchase:60},
-  {date:'24/03/2026',day:'Tuesday',sale:20,purchase:0},
-  {date:'25/03/2026',day:'Wednesday',sale:1080,purchase:1100},
-  {date:'26/03/2026',day:'Thursday',sale:230,purchase:0},
-  {date:'28/03/2026',day:'Saturday',sale:1133,purchase:880},
-  {date:'29/03/2026',day:'Sunday',sale:1195,purchase:0},
-  {date:'30/03/2026',day:'Monday',sale:1716,purchase:795},
-  {date:'31/03/2026',day:'Tuesday',sale:228,purchase:0},
-  {date:'01/04/2026',day:'Wednesday',sale:282,purchase:3934},
-  {date:'02/04/2026',day:'Thursday',sale:240,purchase:158},
-  {date:'03/04/2026',day:'Friday',sale:1946,purchase:190},
-  {date:'04/04/2026',day:'Saturday',sale:1059,purchase:718},
-  {date:'05/04/2026',day:'Sunday',sale:1223,purchase:250},
-  {date:'06/04/2026',day:'Monday',sale:398,purchase:1800},
-  {date:'07/04/2026',day:'Tuesday',sale:1253,purchase:20},
-  {date:'08/04/2026',day:'Wednesday',sale:20,purchase:1037},
-  {date:'09/04/2026',day:'Thursday',sale:1776,purchase:278},
-  {date:'10/04/2026',day:'Friday',sale:19410,purchase:30000},
-  {date:'11/04/2026',day:'Saturday',sale:310,purchase:0},
-  {date:'12/04/2026',day:'Sunday',sale:479,purchase:0},
-  {date:'13/04/2026',day:'Monday',sale:1087,purchase:150},
-  {date:'14/04/2026',day:'Tuesday',sale:40,purchase:970},
-  {date:'15/04/2026',day:'Wednesday',sale:1068,purchase:330},
-  {date:'16/04/2026',day:'Thursday',sale:1387,purchase:640},
-  {date:'17/04/2026',day:'Friday',sale:20,purchase:1354},
-  {date:'18/04/2026',day:'Saturday',sale:270,purchase:299},
-  {date:'19/04/2026',day:'Sunday',sale:1737,purchase:62},
-  {date:'20/04/2026',day:'Monday',sale:600,purchase:255},
-  {date:'21/04/2026',day:'Tuesday',sale:388,purchase:905},
-  {date:'22/04/2026',day:'Wednesday',sale:1965,purchase:2096},
-  {date:'23/04/2026',day:'Thursday',sale:522,purchase:220},
-  {date:'24/04/2026',day:'Friday',sale:2550,purchase:841},
-  {date:'25/04/2026',day:'Saturday',sale:591,purchase:25},
-  {date:'26/04/2026',day:'Sunday',sale:1687,purchase:0},
-  {date:'27/04/2026',day:'Monday',sale:698,purchase:1231},
-  {date:'28/04/2026',day:'Tuesday',sale:359,purchase:454},
-  {date:'29/04/2026',day:'Wednesday',sale:1031,purchase:381},
-  {date:'30/04/2026',day:'Thursday',sale:298,purchase:420},
-  {date:'01/05/2026',day:'Friday',sale:529,purchase:970},
-  {date:'03/05/2026',day:'Sunday',sale:650,purchase:285},
-  {date:'04/05/2026',day:'Monday',sale:396,purchase:0},
-  {date:'05/05/2026',day:'Tuesday',sale:1368,purchase:45},
-  {date:'06/05/2026',day:'Wednesday',sale:2340,purchase:694},
-  {date:'07/05/2026',day:'Thursday',sale:2340,purchase:694},
-  {date:'08/05/2026',day:'Friday',sale:10,purchase:0},
-  {date:'09/05/2026',day:'Saturday',sale:299,purchase:35},
-  {date:'10/05/2026',day:'Sunday',sale:22671,purchase:30000},
-  {date:'11/05/2026',day:'Monday',sale:700,purchase:1838},
-  {date:'12/05/2026',day:'Tuesday',sale:625,purchase:0},
-  {date:'13/05/2026',day:'Wednesday',sale:2890,purchase:279},
-  {date:'14/05/2026',day:'Thursday',sale:110,purchase:1584},
-  {date:'15/05/2026',day:'Friday',sale:1107,purchase:0},
-  {date:'18/05/2026',day:'Monday',sale:2036,purchase:2727},
-  {date:'19/05/2026',day:'Tuesday',sale:1117,purchase:2320},
-  {date:'20/05/2026',day:'Wednesday',sale:707,purchase:2502},
-  {date:'21/05/2026',day:'Thursday',sale:967,purchase:1691},
-  {date:'22/05/2026',day:'Friday',sale:739,purchase:1265},
-  {date:'24/05/2026',day:'Sunday',sale:687,purchase:0},
-  {date:'25/05/2026',day:'Monday',sale:436,purchase:0},
-  {date:'26/05/2026',day:'Tuesday',sale:970,purchase:387},
-  {date:'27/05/2026',day:'Wednesday',sale:3274,purchase:324},
-  {date:'28/05/2026',day:'Thursday',sale:126,purchase:810},
-  {date:'29/05/2026',day:'Friday',sale:139,purchase:1638},
-  {date:'30/05/2026',day:'Saturday',sale:200,purchase:0},
-  {date:'31/05/2026',day:'Sunday',sale:816,purchase:534},
-  {date:'01/06/2026',day:'Monday',sale:2304,purchase:20},
-  {date:'02/06/2026',day:'Tuesday',sale:1064,purchase:2058},
-  {date:'03/06/2026',day:'Wednesday',sale:3611,purchase:557},
-  {date:'04/06/2026',day:'Thursday',sale:2006,purchase:20},
-  {date:'05/06/2026',day:'Friday',sale:10714,purchase:469},
-  {date:'06/06/2026',day:'Saturday',sale:278,purchase:120},
-  {date:'07/06/2026',day:'Sunday',sale:1350,purchase:0},
-  {date:'08/06/2026',day:'Monday',sale:389,purchase:0},
-  {date:'09/06/2026',day:'Tuesday',sale:1095,purchase:639},
-  {date:'10/06/2026',day:'Wednesday',sale:11308,purchase:30000},
-  {date:'11/06/2026',day:'Thursday',sale:1583,purchase:0},
-  {date:'12/06/2026',day:'Friday',sale:2005,purchase:882},
-  {date:'13/06/2026',day:'Saturday',sale:1483,purchase:3606},
-  {date:'14/06/2026',day:'Sunday',sale:1453,purchase:271},
+  {date:'06/02/2026',day:'Friday',sale:3821,purchase:0,rent:0,capInf:0},
+  {date:'07/02/2026',day:'Saturday',sale:2490,purchase:0,rent:0,capInf:0},
+  {date:'08/02/2026',day:'Sunday',sale:1487,purchase:2643,rent:0,capInf:0},
+  {date:'09/02/2026',day:'Monday',sale:886,purchase:240,rent:0,capInf:0},
+  {date:'11/02/2026',day:'Wednesday',sale:846,purchase:1054,rent:0,capInf:0},
+  {date:'12/02/2026',day:'Thursday',sale:1185,purchase:0,rent:0,capInf:0},
+  {date:'13/02/2026',day:'Friday',sale:868,purchase:292,rent:0,capInf:0},
+  {date:'14/02/2026',day:'Saturday',sale:90,purchase:2438,rent:0,capInf:0},
+  {date:'15/02/2026',day:'Sunday',sale:1629,purchase:2591,rent:0,capInf:11000},
+  {date:'16/02/2026',day:'Monday',sale:1164,purchase:0,rent:0,capInf:0},
+  {date:'18/02/2026',day:'Wednesday',sale:1650,purchase:1529,rent:0,capInf:0},
+  {date:'20/02/2026',day:'Friday',sale:1381,purchase:254,rent:0,capInf:0},
+  {date:'21/02/2026',day:'Saturday',sale:429,purchase:1280,rent:0,capInf:0},
+  {date:'22/02/2026',day:'Sunday',sale:1656,purchase:374,rent:0,capInf:0},
+  {date:'23/02/2026',day:'Monday',sale:1899,purchase:1055,rent:0,capInf:0},
+  {date:'24/02/2026',day:'Tuesday',sale:1076,purchase:692,rent:0,capInf:0},
+  {date:'25/02/2026',day:'Wednesday',sale:1215,purchase:495,rent:0,capInf:0},
+  {date:'26/02/2026',day:'Thursday',sale:178,purchase:540,rent:0,capInf:0},
+  {date:'27/02/2026',day:'Friday',sale:2173,purchase:421,rent:0,capInf:0},
+  {date:'28/02/2026',day:'Saturday',sale:1523,purchase:0,rent:0,capInf:0},
+  {date:'01/03/2026',day:'Sunday',sale:1114,purchase:154,rent:0,capInf:0},
+  {date:'07/03/2026',day:'Saturday',sale:1027,purchase:870,rent:0,capInf:0},
+  {date:'08/03/2026',day:'Sunday',sale:677,purchase:290,rent:0,capInf:0},
+  {date:'09/03/2026',day:'Monday',sale:1264,purchase:706,rent:0,capInf:0},
+  {date:'10/03/2026',day:'Tuesday',sale:198,purchase:390,rent:30000,capInf:12500},
+  {date:'11/03/2026',day:'Wednesday',sale:407,purchase:970,rent:0,capInf:0},
+  {date:'12/03/2026',day:'Thursday',sale:1036,purchase:175,rent:0,capInf:0},
+  {date:'13/03/2026',day:'Friday',sale:1046,purchase:205,rent:0,capInf:0},
+  {date:'14/03/2026',day:'Saturday',sale:936,purchase:250,rent:0,capInf:0},
+  {date:'15/03/2026',day:'Sunday',sale:2310,purchase:361,rent:0,capInf:0},
+  {date:'16/03/2026',day:'Monday',sale:2301,purchase:1393,rent:0,capInf:0},
+  {date:'17/03/2026',day:'Tuesday',sale:666,purchase:700,rent:0,capInf:0},
+  {date:'18/03/2026',day:'Wednesday',sale:2428,purchase:621,rent:0,capInf:0},
+  {date:'19/03/2026',day:'Thursday',sale:20,purchase:988,rent:0,capInf:0},
+  {date:'20/03/2026',day:'Friday',sale:2277,purchase:200,rent:0,capInf:0},
+  {date:'21/03/2026',day:'Saturday',sale:279,purchase:2906,rent:0,capInf:0},
+  {date:'22/03/2026',day:'Sunday',sale:1376,purchase:312,rent:0,capInf:0},
+  {date:'23/03/2026',day:'Monday',sale:422,purchase:60,rent:0,capInf:0},
+  {date:'24/03/2026',day:'Tuesday',sale:20,purchase:0,rent:0,capInf:0},
+  {date:'25/03/2026',day:'Wednesday',sale:1080,purchase:1100,rent:0,capInf:0},
+  {date:'26/03/2026',day:'Thursday',sale:230,purchase:0,rent:0,capInf:0},
+  {date:'28/03/2026',day:'Saturday',sale:1133,purchase:880,rent:0,capInf:0},
+  {date:'29/03/2026',day:'Sunday',sale:1195,purchase:0,rent:0,capInf:0},
+  {date:'30/03/2026',day:'Monday',sale:1716,purchase:795,rent:0,capInf:0},
+  {date:'31/03/2026',day:'Tuesday',sale:228,purchase:0,rent:0,capInf:0},
+  {date:'01/04/2026',day:'Wednesday',sale:282,purchase:3934,rent:0,capInf:0},
+  {date:'02/04/2026',day:'Thursday',sale:240,purchase:158,rent:0,capInf:0},
+  {date:'03/04/2026',day:'Friday',sale:1946,purchase:190,rent:0,capInf:0},
+  {date:'04/04/2026',day:'Saturday',sale:1059,purchase:718,rent:0,capInf:0},
+  {date:'05/04/2026',day:'Sunday',sale:1223,purchase:250,rent:0,capInf:0},
+  {date:'06/04/2026',day:'Monday',sale:398,purchase:1800,rent:0,capInf:0},
+  {date:'07/04/2026',day:'Tuesday',sale:1253,purchase:20,rent:0,capInf:0},
+  {date:'08/04/2026',day:'Wednesday',sale:20,purchase:1037,rent:0,capInf:0},
+  {date:'09/04/2026',day:'Thursday',sale:1776,purchase:278,rent:0,capInf:0},
+  {date:'10/04/2026',day:'Friday',sale:410,purchase:0,rent:30000,capInf:19000},
+  {date:'11/04/2026',day:'Saturday',sale:310,purchase:0,rent:0,capInf:0},
+  {date:'12/04/2026',day:'Sunday',sale:479,purchase:0,rent:0,capInf:0},
+  {date:'13/04/2026',day:'Monday',sale:1087,purchase:150,rent:0,capInf:0},
+  {date:'14/04/2026',day:'Tuesday',sale:40,purchase:970,rent:0,capInf:0},
+  {date:'15/04/2026',day:'Wednesday',sale:1068,purchase:330,rent:0,capInf:0},
+  {date:'16/04/2026',day:'Thursday',sale:1387,purchase:640,rent:0,capInf:0},
+  {date:'17/04/2026',day:'Friday',sale:20,purchase:1354,rent:0,capInf:0},
+  {date:'18/04/2026',day:'Saturday',sale:270,purchase:299,rent:0,capInf:0},
+  {date:'19/04/2026',day:'Sunday',sale:1737,purchase:62,rent:0,capInf:0},
+  {date:'20/04/2026',day:'Monday',sale:600,purchase:255,rent:0,capInf:0},
+  {date:'21/04/2026',day:'Tuesday',sale:388,purchase:905,rent:0,capInf:0},
+  {date:'22/04/2026',day:'Wednesday',sale:1965,purchase:2096,rent:0,capInf:0},
+  {date:'23/04/2026',day:'Thursday',sale:522,purchase:220,rent:0,capInf:0},
+  {date:'24/04/2026',day:'Friday',sale:2550,purchase:841,rent:0,capInf:0},
+  {date:'25/04/2026',day:'Saturday',sale:591,purchase:25,rent:0,capInf:0},
+  {date:'26/04/2026',day:'Sunday',sale:1687,purchase:0,rent:0,capInf:0},
+  {date:'27/04/2026',day:'Monday',sale:698,purchase:1231,rent:0,capInf:0},
+  {date:'28/04/2026',day:'Tuesday',sale:359,purchase:454,rent:0,capInf:0},
+  {date:'29/04/2026',day:'Wednesday',sale:1031,purchase:381,rent:0,capInf:0},
+  {date:'30/04/2026',day:'Thursday',sale:298,purchase:420,rent:0,capInf:0},
+  {date:'01/05/2026',day:'Friday',sale:529,purchase:970,rent:0,capInf:0},
+  {date:'03/05/2026',day:'Sunday',sale:650,purchase:285,rent:0,capInf:0},
+  {date:'04/05/2026',day:'Monday',sale:396,purchase:0,rent:0,capInf:0},
+  {date:'05/05/2026',day:'Tuesday',sale:1368,purchase:45,rent:0,capInf:0},
+  {date:'06/05/2026',day:'Wednesday',sale:2340,purchase:694,rent:0,capInf:0},
+  {date:'07/05/2026',day:'Thursday',sale:2340,purchase:694,rent:0,capInf:0},
+  {date:'08/05/2026',day:'Friday',sale:10,purchase:0,rent:0,capInf:0},
+  {date:'09/05/2026',day:'Saturday',sale:299,purchase:35,rent:0,capInf:0},
+  {date:'10/05/2026',day:'Sunday',sale:2671,purchase:0,rent:30000,capInf:20000},
+  {date:'11/05/2026',day:'Monday',sale:700,purchase:1838,rent:0,capInf:0},
+  {date:'12/05/2026',day:'Tuesday',sale:625,purchase:0,rent:0,capInf:0},
+  {date:'13/05/2026',day:'Wednesday',sale:2890,purchase:279,rent:0,capInf:0},
+  {date:'14/05/2026',day:'Thursday',sale:110,purchase:1584,rent:0,capInf:0},
+  {date:'15/05/2026',day:'Friday',sale:1107,purchase:0,rent:0,capInf:0},
+  {date:'18/05/2026',day:'Monday',sale:2036,purchase:2727,rent:0,capInf:0},
+  {date:'19/05/2026',day:'Tuesday',sale:1117,purchase:2320,rent:0,capInf:0},
+  {date:'20/05/2026',day:'Wednesday',sale:707,purchase:2502,rent:0,capInf:0},
+  {date:'21/05/2026',day:'Thursday',sale:967,purchase:1691,rent:0,capInf:0},
+  {date:'22/05/2026',day:'Friday',sale:739,purchase:1265,rent:0,capInf:0},
+  {date:'24/05/2026',day:'Sunday',sale:687,purchase:0,rent:0,capInf:0},
+  {date:'25/05/2026',day:'Monday',sale:436,purchase:0,rent:0,capInf:0},
+  {date:'26/05/2026',day:'Tuesday',sale:970,purchase:387,rent:0,capInf:0},
+  {date:'27/05/2026',day:'Wednesday',sale:3274,purchase:324,rent:0,capInf:0},
+  {date:'28/05/2026',day:'Thursday',sale:126,purchase:810,rent:0,capInf:0},
+  {date:'29/05/2026',day:'Friday',sale:139,purchase:1638,rent:0,capInf:0},
+  {date:'30/05/2026',day:'Saturday',sale:200,purchase:0,rent:0,capInf:0},
+  {date:'31/05/2026',day:'Sunday',sale:816,purchase:534,rent:0,capInf:0},
+  {date:'01/06/2026',day:'Monday',sale:2304,purchase:20,rent:0,capInf:0},
+  {date:'02/06/2026',day:'Tuesday',sale:1064,purchase:2058,rent:0,capInf:0},
+  {date:'03/06/2026',day:'Wednesday',sale:3611,purchase:557,rent:0,capInf:0},
+  {date:'04/06/2026',day:'Thursday',sale:2006,purchase:20,rent:0,capInf:0},
+  {date:'05/06/2026',day:'Friday',sale:714,purchase:469,rent:0,capInf:10000},
+  {date:'06/06/2026',day:'Saturday',sale:278,purchase:120,rent:0,capInf:0},
+  {date:'07/06/2026',day:'Sunday',sale:1350,purchase:0,rent:0,capInf:0},
+  {date:'08/06/2026',day:'Monday',sale:389,purchase:0,rent:0,capInf:0},
+  {date:'09/06/2026',day:'Tuesday',sale:1095,purchase:639,rent:0,capInf:0},
+  {date:'10/06/2026',day:'Wednesday',sale:1308,purchase:0,rent:30000,capInf:10000},
+  {date:'11/06/2026',day:'Thursday',sale:1583,purchase:0,rent:0,capInf:0},
+  {date:'12/06/2026',day:'Friday',sale:2005,purchase:882,rent:0,capInf:0},
+  {date:'13/06/2026',day:'Saturday',sale:1483,purchase:3606,rent:0,capInf:0},
+  {date:'14/06/2026',day:'Sunday',sale:1453,purchase:271,rent:0,capInf:0},
 ];
+
+let _amendTargetIndex=null;
+
+function openAmendModal(blockIndex){
+  const block=bcChain[blockIndex];
+  if(!block)return;
+  _amendTargetIndex=blockIndex;
+  document.getElementById('amend-total').value=block.data.total||'';
+  document.getElementById('amend-reason').value='';
+  const orig=document.getElementById('amend-original');
+  if(orig)orig.innerHTML=`<b>Block #${blockIndex}</b> · ${block.data.date||''} · Original total: <b style="color:#4ade80">${bcFmt(block.data.total)}</b>`;
+  document.getElementById('amend-modal').classList.add('open');
+  setTimeout(()=>document.getElementById('amend-total').focus(),100);
+}
+
+function closeAmendModal(){
+  document.getElementById('amend-modal').classList.remove('open');
+  _amendTargetIndex=null;
+}
+
+async function submitAmendment(){
+  if(_amendTargetIndex===null)return;
+  const total=parseFloat(document.getElementById('amend-total').value);
+  const reason=document.getElementById('amend-reason').value.trim();
+  if(!total||isNaN(total)){showToast('Enter a corrected total','error');return;}
+  if(!reason){showToast('Enter a reason for the amendment','error');return;}
+  const target=bcChain[_amendTargetIndex];
+  const data={
+    amendedBlockIndex:_amendTargetIndex,
+    amendedRecordId:target.data.recordId||'',
+    date:target.data.date||'',
+    originalTotal:target.data.total||0,
+    items:[{item:'Corrected Total',qty:1,total}],
+    total,
+    reason,
+    timestamp:new Date().toISOString()
+  };
+  closeAmendModal();
+  const block=await bcAppendBlock(bcChain,'AMENDMENT',data);
+  bcChain=[...bcChain,block];
+  bcSave(bcChain);
+  showToast(`Amendment sealed as Block #${block.index}. Original Block #${_amendTargetIndex||''} preserved.`,'success');
+  renderLedger();
+}
 
 async function importHistoricalData(){
   const alreadyImported=bcChain.some(b=>b.type==='HISTORICAL');
@@ -1794,6 +1875,8 @@ async function importHistoricalData(){
       subtotal:record.sale,
       total:record.sale,
       purchase:record.purchase,
+      rent:record.rent||0,
+      capInf:record.capInf||0,
       payment:'Mixed'
     };
     const block=await bcAppendBlock(c,'HISTORICAL',data);
