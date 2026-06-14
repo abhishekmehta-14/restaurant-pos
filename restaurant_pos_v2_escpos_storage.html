@@ -1,4 +1,3 @@
-
 <h2 class="sr-only">Restaurant POS v2 — XP-80 ESC/POS real printing and persistent data storage across sessions</h2>
 <style>
 :root{
@@ -430,8 +429,9 @@ body{font-family:var(--font-sans);font-size:14px;color:var(--color-text-primary)
     <input type="tel" id="cust-phone" placeholder="Enter phone number" style="width:100%;padding:8px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-secondary);color:var(--color-text-primary);font-size:14px;margin-bottom:10px" oninput="lookupCustomer(this.value)"/>
     <label style="font-size:12px;color:var(--color-text-secondary);display:block;margin-bottom:4px">Customer name</label>
     <input type="text" id="cust-name" placeholder="Enter name" style="width:100%;padding:8px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-secondary);color:var(--color-text-primary);font-size:14px;margin-bottom:16px"/>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
       <button onclick="skipCustomer()" style="padding:10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:transparent;color:var(--color-text-secondary);cursor:pointer;font-size:13px">Skip</button>
+      <button onclick="saveCustomerOnly()" style="padding:10px;border-radius:var(--border-radius-md);border:0.5px solid #30D158;background:transparent;color:#30D158;cursor:pointer;font-size:13px;font-weight:500">Save only</button>
       <button onclick="saveCustomerAndBill()" style="padding:10px;border-radius:var(--border-radius-md);background:#0A84FF;color:#F2F2F7;border:none;cursor:pointer;font-size:13px;font-weight:500">Save & Print Bill</button>
     </div>
   </div>
@@ -956,6 +956,20 @@ function skipCustomer(){
   finalisePlaceOrder(null,null);
 }
 
+function saveCustomerOnly(){
+  const phone=document.getElementById('cust-phone').value.trim();
+  const name=document.getElementById('cust-name').value.trim();
+  if(!name&&!phone){showToast('Enter name or phone first','error');return;}
+  document.getElementById('customer-modal').classList.remove('open');
+  // Build a lightweight order object just for the DB push
+  const sub=cart.reduce((a,c)=>a+c.price*c.qty,0);
+  const taxRate=parseFloat(settings.taxRate||5);
+  const gst=Math.round(sub*taxRate/100);
+  const fakeOrder={id:orderCounter,time:new Date().toISOString(),type:orderType,table:selectedTable,items:[...cart],sub,gst,total:sub+gst,payment:paymentMode};
+  pushCustomerToSheet(name||null,phone||null,fakeOrder);
+  showToast('Customer saved to database ✓','success');
+}
+
 function saveCustomerAndBill(){
   const phone=document.getElementById('cust-phone').value.trim();
   const name=document.getElementById('cust-name').value.trim();
@@ -995,7 +1009,12 @@ async function pushCustomerToSheet(name,phone,order){
     items:order.items.map(i=>i.qty+'x '+i.name).join(', ')
   };
   try{
-    await fetch(url,{method:'POST',body:JSON.stringify(payload),headers:{'Content-Type':'application/json'}});
+    await fetch(url,{
+      method:'POST',
+      body:JSON.stringify(payload),
+      headers:{'Content-Type':'text/plain'},
+      mode:'no-cors'
+    });
   }catch(e){console.warn('Customer DB push failed:',e.message);}
 }
 
