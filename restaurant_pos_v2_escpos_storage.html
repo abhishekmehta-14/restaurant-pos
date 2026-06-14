@@ -190,6 +190,7 @@ body{font-family:var(--font-sans);font-size:14px;color:var(--color-text-primary)
       <button class="nav-btn" onclick="showScreen('menu',this)"><i class="ti ti-tools-kitchen-2" aria-hidden="true"></i> Menu</button>
       <button class="nav-btn" onclick="showScreen('inventory',this)"><i class="ti ti-box" aria-hidden="true"></i> Inventory</button>
       <button class="nav-btn" onclick="showScreen('report',this)"><i class="ti ti-chart-bar" aria-hidden="true"></i> Reports</button>
+      <button class="nav-btn" onclick="showScreen('ledger',this)"><i class="ti ti-chain" aria-hidden="true"></i> Ledger</button>
       <button class="nav-btn" onclick="showScreen('settings',this)"><i class="ti ti-settings" aria-hidden="true"></i> Printer</button>
     </div>
     <div class="printer-status">
@@ -327,6 +328,25 @@ body{font-family:var(--font-sans);font-size:14px;color:var(--color-text-primary)
   </div>
 
   <!-- PRINTER SETTINGS -->
+  <div class="screen" id="screen-ledger">
+    <div style="padding:16px 20px;border-bottom:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:18px">⛓</span>
+          <span style="font-size:15px;font-weight:600;color:#4ade80;letter-spacing:1px">FFC & PIZZA SALES LEDGER</span>
+        </div>
+        <div style="font-size:10px;color:var(--color-text-tertiary);margin-top:2px">Append-only · Immutable · Tamper-evident</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <button id="import-history-btn" onclick="importHistoricalData()" style="padding:6px 14px;border-radius:var(--border-radius-md);background:#0A3D6B;color:#5AC8FA;border:0.5px solid #0A84FF;cursor:pointer;font-size:12px;font-weight:500"><i class="ti ti-upload" aria-hidden="true"></i> Import Historical Data</button>
+        <div id="chain-status-badge" style="padding:4px 12px;border-radius:99px;font-size:11px;font-weight:bold;letter-spacing:1px">Initialising...</div>
+      </div>
+    </div>
+    <div id="ledger-stats" style="padding:8px 20px;border-bottom:0.5px solid var(--color-border-tertiary);display:flex;gap:24px;flex-wrap:wrap;font-family:monospace"></div>
+    <div id="ledger-import-progress" style="display:none;padding:12px 20px;background:#0A3D6B;color:#5AC8FA;font-size:13px;border-bottom:0.5px solid #0A84FF"></div>
+    <div id="ledger-blocks" style="padding:16px 20px;overflow-y:auto;max-height:calc(100vh - 200px)"></div>
+  </div>
+
   <div class="screen" id="screen-settings">
     <div style="padding:16px;display:flex;flex-direction:column;gap:14px">
       <div style="font-size:13px;font-weight:500"><i class="ti ti-printer" aria-hidden="true"></i> Xprinter XP-B6 setup <span class="storage-badge"><i class="ti ti-database" aria-hidden="true"></i> Settings saved</span></div>
@@ -650,6 +670,7 @@ function showScreen(name,btn){
   if(name==='report')renderReport();
   if(name==='history')renderHistory();
   if(name==='settings')applySettings();
+  if(name==='ledger')renderLedger();
 }
 
 function setOrderType(t){
@@ -1036,6 +1057,7 @@ function finalisePlaceOrder(custName, custPhone){
     if(tEl){tEl.className='tbl occupied selected';tEl.querySelector('.tstat').textContent='Occupied';}
   }
   if(custName||custPhone)pushCustomerToSheet(custName,custPhone,order);
+  sealOrderToBlockchain(order);
   currentReceiptData=order;
   showReceipt(order,now);
 }
@@ -1502,6 +1524,290 @@ async function syncMenuFromSheets(manual=false){
   }
 }
 
+// ============================================================
+// BLOCKCHAIN SALES LEDGER
+// ============================================================
+const BC_KEY='pos_blockchain';
+let bcChain=null;
+
+async function sha256(str){
+  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+async function bcBlockHash(index,timestamp,type,data,previousHash){
+  return sha256(JSON.stringify({index,timestamp,type,data,previousHash}));
+}
+async function bcMakeGenesis(){
+  const ts=new Date().toISOString();
+  const data={note:'FFC & Pizza — Sales Ledger Genesis Block'};
+  const hash=await bcBlockHash(0,ts,'GENESIS',data,'0000000000000000');
+  return {index:0,timestamp:ts,type:'GENESIS',data,previousHash:'0000000000000000',hash};
+}
+async function bcAppendBlock(chain,type,data){
+  const index=chain.length;
+  const ts=new Date().toISOString();
+  const prev=chain[chain.length-1].hash;
+  const hash=await bcBlockHash(index,ts,type,data,prev);
+  return {index,timestamp:ts,type,data,previousHash:prev,hash};
+}
+async function bcVerify(chain){
+  for(let i=1;i<chain.length;i++){
+    const b=chain[i];
+    const expected=await bcBlockHash(b.index,b.timestamp,b.type,b.data,b.previousHash);
+    if(b.hash!==expected)return{ok:false,at:i};
+    if(b.previousHash!==chain[i-1].hash)return{ok:false,at:i};
+  }
+  return{ok:true};
+}
+function bcLoad(){try{const v=localStorage.getItem(BC_KEY);return v?JSON.parse(v):null;}catch(e){return null;}}
+function bcSave(chain){try{localStorage.setItem(BC_KEY,JSON.stringify(chain));}catch(e){}}
+
+async function initBlockchain(){
+  let c=bcLoad();
+  if(!c){c=[await bcMakeGenesis()];bcSave(c);}
+  bcChain=c;
+  console.log('[BC] Chain loaded:',c.length,'blocks');
+}
+
+async function sealOrderToBlockchain(order){
+  if(!bcChain)return;
+  try{
+    const data={
+      recordId:'SALE-'+order.id,
+      orderId:order.id,
+      date:new Date(order.time).toLocaleDateString('en-IN'),
+      time:new Date(order.time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}),
+      type:order.type==='dine'?'Table '+order.table:order.type==='take'?'Takeaway':'Zomato',
+      items:order.items.map(i=>({item:i.name,qty:i.qty,total:i.price*i.qty})),
+      subtotal:order.sub,
+      gst:order.gst,
+      total:order.total,
+      payment:order.payment.toUpperCase()
+    };
+    const block=await bcAppendBlock(bcChain,'SALE',data);
+    bcChain=[...bcChain,block];
+    bcSave(bcChain);
+    console.log('[BC] Order #'+order.id+' sealed as Block #'+block.index);
+  }catch(e){console.warn('[BC] Failed to seal:',e.message);}
+}
+
+function bcFmt(n){return'₹'+Number(n||0).toLocaleString('en-IN',{minimumFractionDigits:0});}
+function bcShort(h){return h?h.substring(0,8)+'...':'';}
+
+async function renderLedger(){
+  if(!bcChain)return;
+  const status=await bcVerify(bcChain);
+  const sales=bcChain.filter(b=>b.type==='SALE');
+  const historical=bcChain.filter(b=>b.type==='HISTORICAL');
+  const amendments=bcChain.filter(b=>b.type==='AMENDMENT');
+  const gross=sales.reduce((s,b)=>s+(b.data.total||0),0);
+  const histGross=historical.reduce((s,b)=>s+(b.data.total||0),0);
+  const amendedSet=new Set(amendments.map(b=>b.data.amendedBlockIndex));
+
+  // Status badge
+  const badge=document.getElementById('chain-status-badge');
+  if(badge){
+    badge.textContent=status.ok?'✓ CHAIN VALID':'⚠ TAMPERED — Block #'+status.at;
+    badge.style.background=status.ok?'#0f2a0f':'#2a0f0f';
+    badge.style.color=status.ok?'#4ade80':'#f87171';
+    badge.style.border='1px solid '+(status.ok?'#1e4d1e':'#4d1e1e');
+  }
+
+  // Stats
+  const stats=document.getElementById('ledger-stats');
+  if(stats){
+    stats.innerHTML=[
+      ['Blocks',bcChain.length,'#9ca3af'],
+      ['POS Sales',sales.length,'#4ade80'],
+      ['Historical',historical.length,'#818cf8'],
+      ['Amendments',amendments.length,'#fbbf24'],
+      ['POS Revenue',bcFmt(gross),'#34d399'],
+      ['Hist. Revenue',bcFmt(histGross),'#a78bfa']
+    ].map(([l,v,c])=>`<div><span style="color:var(--color-text-tertiary);font-size:11px">${l} </span><span style="color:${c};font-weight:bold;font-size:13px">${v}</span></div>`).join('');
+  }
+
+  // Blocks
+  const container=document.getElementById('ledger-blocks');
+  if(!container)return;
+  container.innerHTML=[...bcChain].reverse().map(block=>{
+    const isAmended=block.type==='SALE'&&amendedSet.has(block.index);
+    const borderColor=block.type==='AMENDMENT'?'#3a2a00':block.type==='GENESIS'?'#1a2a1a':block.type==='HISTORICAL'?'#1a1a3a':isAmended?'#222':'#1a3a1a';
+    const tagColor=block.type==='GENESIS'?'#3a4a3a':block.type==='AMENDMENT'?'#fbbf24':block.type==='HISTORICAL'?'#818cf8':isAmended?'#6b7280':'#4ade80';
+    const tagBg=block.type==='GENESIS'?'#1a2a1a':block.type==='AMENDMENT'?'#2a1f00':block.type==='HISTORICAL'?'#1a1a3a':isAmended?'#1a1a1a':'#0f2a0f';
+    const items=block.type==='SALE'?block.data.items||[]:block.type==='AMENDMENT'?block.data.orders?.[0]?.items||[]:[];
+    return `<div style="margin-bottom:8px;border-radius:8px;border:1px solid ${borderColor};background:#0a0f0a;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:10px;padding:11px 14px">
+        <span style="font-size:10px;padding:2px 7px;border-radius:99px;font-weight:bold;letter-spacing:1px;background:${tagBg};color:${tagColor}">${block.type}</span>
+        <span style="font-size:12px;color:var(--color-text-secondary)">Block #${block.index}</span>
+        ${block.type==='SALE'?`<span style="font-size:12px;color:var(--color-text-primary)">${block.data.date} · ${block.data.type}</span>`:''}
+        ${block.type==='SALE'?`<span style="margin-left:auto;color:#4ade80;font-weight:bold;font-size:13px;font-family:monospace">${bcFmt(block.data.total)}</span>`:''}
+        ${block.type==='AMENDMENT'?`<span style="font-size:12px;color:#fbbf24">Corrects Block #${block.data.amendedBlockIndex}</span>`:''}
+        <span style="font-size:10px;color:var(--color-text-tertiary);margin-left:${block.type==='SALE'?'0':'auto'}">${new Date(block.timestamp).toLocaleString('en-IN')}</span>
+      </div>
+      ${items.length?`<div style="padding:0 14px 11px;display:flex;flex-wrap:wrap;gap:6px">
+        ${items.map(i=>`<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:var(--color-background-secondary);color:var(--color-text-secondary)">${i.qty||1}× ${i.item||i.desc||''} · ${bcFmt(i.total||i.amt||0)}</span>`).join('')}
+      </div>`:''}
+      <div style="padding:4px 14px 8px;font-family:monospace;font-size:9px;color:var(--color-text-tertiary)">
+        HASH: ${bcShort(block.hash)} · PREV: ${bcShort(block.previousHash)}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Historical Sales Data (from Monthly Cashflow Sheet) ──────
+const HISTORICAL_SALES=[
+  {date:'06/02/2026',day:'Friday',sale:3821,purchase:0},
+  {date:'07/02/2026',day:'Saturday',sale:2490,purchase:0},
+  {date:'08/02/2026',day:'Sunday',sale:1487,purchase:2643},
+  {date:'09/02/2026',day:'Monday',sale:886,purchase:240},
+  {date:'11/02/2026',day:'Wednesday',sale:846,purchase:1054},
+  {date:'12/02/2026',day:'Thursday',sale:1185,purchase:0},
+  {date:'13/02/2026',day:'Friday',sale:868,purchase:292},
+  {date:'14/02/2026',day:'Saturday',sale:90,purchase:2438},
+  {date:'15/02/2026',day:'Sunday',sale:1629,purchase:2591},
+  {date:'16/02/2026',day:'Monday',sale:1164,purchase:0},
+  {date:'18/02/2026',day:'Wednesday',sale:1650,purchase:1529},
+  {date:'20/02/2026',day:'Friday',sale:1381,purchase:254},
+  {date:'21/02/2026',day:'Saturday',sale:429,purchase:1280},
+  {date:'22/02/2026',day:'Sunday',sale:1656,purchase:374},
+  {date:'23/02/2026',day:'Monday',sale:1899,purchase:1055},
+  {date:'24/02/2026',day:'Tuesday',sale:1076,purchase:692},
+  {date:'25/02/2026',day:'Wednesday',sale:1215,purchase:495},
+  {date:'26/02/2026',day:'Thursday',sale:178,purchase:540},
+  {date:'27/02/2026',day:'Friday',sale:2173,purchase:421},
+  {date:'28/02/2026',day:'Saturday',sale:1523,purchase:0},
+  {date:'01/03/2026',day:'Sunday',sale:1114,purchase:154},
+  {date:'07/03/2026',day:'Saturday',sale:1027,purchase:870},
+  {date:'08/03/2026',day:'Sunday',sale:677,purchase:290},
+  {date:'09/03/2026',day:'Monday',sale:1264,purchase:706},
+  {date:'10/03/2026',day:'Tuesday',sale:198,purchase:30390},
+  {date:'11/03/2026',day:'Wednesday',sale:407,purchase:970},
+  {date:'12/03/2026',day:'Thursday',sale:1036,purchase:175},
+  {date:'13/03/2026',day:'Friday',sale:1046,purchase:205},
+  {date:'14/03/2026',day:'Saturday',sale:936,purchase:250},
+  {date:'15/03/2026',day:'Sunday',sale:2310,purchase:361},
+  {date:'16/03/2026',day:'Monday',sale:2301,purchase:1393},
+  {date:'17/03/2026',day:'Tuesday',sale:666,purchase:700},
+  {date:'18/03/2026',day:'Wednesday',sale:2428,purchase:621},
+  {date:'19/03/2026',day:'Thursday',sale:20,purchase:988},
+  {date:'20/03/2026',day:'Friday',sale:2277,purchase:200},
+  {date:'21/03/2026',day:'Saturday',sale:279,purchase:2906},
+  {date:'22/03/2026',day:'Sunday',sale:1376,purchase:312},
+  {date:'23/03/2026',day:'Monday',sale:422,purchase:60},
+  {date:'24/03/2026',day:'Tuesday',sale:20,purchase:0},
+  {date:'25/03/2026',day:'Wednesday',sale:1080,purchase:1100},
+  {date:'26/03/2026',day:'Thursday',sale:230,purchase:0},
+  {date:'28/03/2026',day:'Saturday',sale:1133,purchase:880},
+  {date:'29/03/2026',day:'Sunday',sale:1195,purchase:0},
+  {date:'30/03/2026',day:'Monday',sale:1716,purchase:795},
+  {date:'31/03/2026',day:'Tuesday',sale:228,purchase:0},
+  {date:'01/04/2026',day:'Wednesday',sale:282,purchase:3934},
+  {date:'02/04/2026',day:'Thursday',sale:240,purchase:158},
+  {date:'03/04/2026',day:'Friday',sale:1946,purchase:190},
+  {date:'04/04/2026',day:'Saturday',sale:1059,purchase:718},
+  {date:'05/04/2026',day:'Sunday',sale:1223,purchase:250},
+  {date:'06/04/2026',day:'Monday',sale:398,purchase:1800},
+  {date:'07/04/2026',day:'Tuesday',sale:1253,purchase:20},
+  {date:'08/04/2026',day:'Wednesday',sale:20,purchase:1037},
+  {date:'09/04/2026',day:'Thursday',sale:1776,purchase:278},
+  {date:'10/04/2026',day:'Friday',sale:19410,purchase:30000},
+  {date:'11/04/2026',day:'Saturday',sale:310,purchase:0},
+  {date:'12/04/2026',day:'Sunday',sale:479,purchase:0},
+  {date:'13/04/2026',day:'Monday',sale:1087,purchase:150},
+  {date:'14/04/2026',day:'Tuesday',sale:40,purchase:970},
+  {date:'15/04/2026',day:'Wednesday',sale:1068,purchase:330},
+  {date:'16/04/2026',day:'Thursday',sale:1387,purchase:640},
+  {date:'17/04/2026',day:'Friday',sale:20,purchase:1354},
+  {date:'18/04/2026',day:'Saturday',sale:270,purchase:299},
+  {date:'19/04/2026',day:'Sunday',sale:1737,purchase:62},
+  {date:'20/04/2026',day:'Monday',sale:600,purchase:255},
+  {date:'21/04/2026',day:'Tuesday',sale:388,purchase:905},
+  {date:'22/04/2026',day:'Wednesday',sale:1965,purchase:2096},
+  {date:'23/04/2026',day:'Thursday',sale:522,purchase:220},
+  {date:'24/04/2026',day:'Friday',sale:2550,purchase:841},
+  {date:'25/04/2026',day:'Saturday',sale:591,purchase:25},
+  {date:'26/04/2026',day:'Sunday',sale:1687,purchase:0},
+  {date:'27/04/2026',day:'Monday',sale:698,purchase:1231},
+  {date:'28/04/2026',day:'Tuesday',sale:359,purchase:454},
+  {date:'29/04/2026',day:'Wednesday',sale:1031,purchase:381},
+  {date:'30/04/2026',day:'Thursday',sale:298,purchase:420},
+  {date:'01/05/2026',day:'Friday',sale:529,purchase:970},
+  {date:'03/05/2026',day:'Sunday',sale:650,purchase:285},
+  {date:'04/05/2026',day:'Monday',sale:396,purchase:0},
+  {date:'05/05/2026',day:'Tuesday',sale:1368,purchase:45},
+  {date:'06/05/2026',day:'Wednesday',sale:2340,purchase:694},
+  {date:'07/05/2026',day:'Thursday',sale:2340,purchase:694},
+  {date:'08/05/2026',day:'Friday',sale:10,purchase:0},
+  {date:'09/05/2026',day:'Saturday',sale:299,purchase:35},
+  {date:'10/05/2026',day:'Sunday',sale:22671,purchase:30000},
+  {date:'11/05/2026',day:'Monday',sale:700,purchase:1838},
+  {date:'12/05/2026',day:'Tuesday',sale:625,purchase:0},
+  {date:'13/05/2026',day:'Wednesday',sale:2890,purchase:279},
+  {date:'14/05/2026',day:'Thursday',sale:110,purchase:1584},
+  {date:'15/05/2026',day:'Friday',sale:1107,purchase:0},
+  {date:'18/05/2026',day:'Monday',sale:2036,purchase:2727},
+  {date:'19/05/2026',day:'Tuesday',sale:1117,purchase:2320},
+  {date:'20/05/2026',day:'Wednesday',sale:707,purchase:2502},
+  {date:'21/05/2026',day:'Thursday',sale:967,purchase:1691},
+  {date:'22/05/2026',day:'Friday',sale:739,purchase:1265},
+  {date:'24/05/2026',day:'Sunday',sale:687,purchase:0},
+  {date:'25/05/2026',day:'Monday',sale:436,purchase:0},
+  {date:'26/05/2026',day:'Tuesday',sale:970,purchase:387},
+  {date:'27/05/2026',day:'Wednesday',sale:3274,purchase:324},
+  {date:'28/05/2026',day:'Thursday',sale:126,purchase:810},
+  {date:'29/05/2026',day:'Friday',sale:139,purchase:1638},
+  {date:'30/05/2026',day:'Saturday',sale:200,purchase:0},
+  {date:'31/05/2026',day:'Sunday',sale:816,purchase:534},
+  {date:'01/06/2026',day:'Monday',sale:2304,purchase:20},
+  {date:'02/06/2026',day:'Tuesday',sale:1064,purchase:2058},
+  {date:'03/06/2026',day:'Wednesday',sale:3611,purchase:557},
+  {date:'04/06/2026',day:'Thursday',sale:2006,purchase:20},
+  {date:'05/06/2026',day:'Friday',sale:10714,purchase:469},
+  {date:'06/06/2026',day:'Saturday',sale:278,purchase:120},
+  {date:'07/06/2026',day:'Sunday',sale:1350,purchase:0},
+  {date:'08/06/2026',day:'Monday',sale:389,purchase:0},
+  {date:'09/06/2026',day:'Tuesday',sale:1095,purchase:639},
+  {date:'10/06/2026',day:'Wednesday',sale:11308,purchase:30000},
+  {date:'11/06/2026',day:'Thursday',sale:1583,purchase:0},
+  {date:'12/06/2026',day:'Friday',sale:2005,purchase:882},
+  {date:'13/06/2026',day:'Saturday',sale:1483,purchase:3606},
+  {date:'14/06/2026',day:'Sunday',sale:1453,purchase:271},
+];
+
+async function importHistoricalData(){
+  const alreadyImported=bcChain.some(b=>b.type==='HISTORICAL');
+  if(alreadyImported){if(!confirm('Historical data already imported. Import again?'))return;}
+  if(!confirm('This will seal 116 days of historical sales (6 Feb – 14 Jun 2026) to the blockchain.\n\nThis cannot be undone. Continue?'))return;
+  const btn=document.getElementById('import-history-btn');
+  const prog=document.getElementById('ledger-import-progress');
+  if(btn){btn.disabled=true;btn.textContent='Importing...';}
+  if(prog){prog.style.display='block';prog.style.background='#0A3D6B';prog.style.color='#5AC8FA';}
+  let c=[...bcChain];
+  for(let i=0;i<HISTORICAL_SALES.length;i++){
+    const record=HISTORICAL_SALES[i];
+    const data={
+      recordId:'HIST-'+record.date.replace(/\//g,'-'),
+      date:record.date,
+      day:record.day,
+      source:'Monthly Cashflow Sheet (Feb–Jun 2026)',
+      items:[{item:'Total Daily Sales',qty:1,total:record.sale}],
+      subtotal:record.sale,
+      total:record.sale,
+      purchase:record.purchase,
+      payment:'Mixed'
+    };
+    const block=await bcAppendBlock(c,'HISTORICAL',data);
+    c=[...c,block];
+    if(prog)prog.textContent=`Sealing blocks... ${i+1}/${HISTORICAL_SALES.length} — ${record.date} (₹${record.sale.toLocaleString('en-IN')})`;
+  }
+  bcChain=c;
+  bcSave(bcChain);
+  if(prog){prog.style.background='#0f2a0f';prog.style.color='#4ade80';prog.textContent=`✓ Import complete! 116 historical days sealed. Chain now has ${bcChain.length} blocks.`;}
+  if(btn){btn.disabled=false;btn.style.background='#1E5C1E';btn.style.color='#30D158';btn.textContent='✓ Imported';}
+  renderLedger();
+}
+
+initBlockchain();
 initTables();
 initMenu();
 applySettings();
